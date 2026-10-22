@@ -12,4 +12,5 @@
 - [ ] Test: three Flaps within the window at terminal fall speed stop the fall
 - [ ] Test: a Queen holding Down falls faster; Down is ignored for Workers and Warriors
 - [ ] Queen and Warrior colliders match each other and differ from the Worker's
+- [ ] Test: a winged character is blocked at a Workers-only wrap edge (until now these wrap for everyone; see ticket 02 and `MapData.is_solid`)
 - [ ] Flight constants are tuning-table values

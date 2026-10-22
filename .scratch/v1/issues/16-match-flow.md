@@ -6,6 +6,7 @@
 
 **Status:** ready-for-agent
 
+- [ ] Starting barriers are added to the Map data (Day has none yet; see ticket 02) and drawn while they stand
 - [ ] Test: during the countdown, Seat input doesn't move characters past the starting barriers; when it ends, the barriers are gone
 - [ ] The victory screen shows the winning Team and win type for every win type that exists so far
 - [ ] Rematch starts a new Match with the same Seats; quit returns to the Lobby (or its placeholder)

@@ -13,6 +13,8 @@ var worker_run_accel: int
 var worker_run_decel: int
 var worker_width: int
 var worker_height: int
+var worker_gravity: int
+var worker_max_fall_speed: int
 
 
 static func load_default() -> Tuning:

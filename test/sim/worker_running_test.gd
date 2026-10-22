@@ -77,7 +77,7 @@ func test_step_leaves_the_given_state_unchanged() -> void:
 	var after := Sim.step(before, _tick_input(before.tick, SeatInput.RIGHT))
 
 	assert_int(before.tick).is_equal(0)
-	assert_int(before.characters[0].x).is_equal(before.map.spawns[0].x)
+	assert_int(before.characters[0].x).is_equal(before.map.spawns[CharacterState.BLUE][0].x)
 	assert_int(after.tick).is_equal(1)
 	assert_int(after.characters[0].x).is_not_equal(before.characters[0].x)
 
@@ -99,7 +99,7 @@ func _instant_accel() -> Tuning:
 
 func _match(tuning: Tuning) -> MatchState:
 	var config := MatchConfig.new()
-	config.map = MapData.test_floor(1)
+	config.map = TestMaps.flat_floor(1)
 	config.seat_teams = [CharacterState.BLUE]
 	config.tuning = tuning
 	return Sim.create_match(config)

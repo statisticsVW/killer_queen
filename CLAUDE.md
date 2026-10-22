@@ -14,6 +14,7 @@ Layout:
 - `sim/`: the Match simulation. Plain GDScript, integer maths, no Godot nodes, physics, floats or clock (ADR-0001, ADR-0002). Its public interface is `Sim.create_match` and `Sim.step`.
 - `game/`: presentation. Drives the sim at 50 ticks/s, reads devices into `SeatInput`, draws state. No game rules.
 - `data/tuning.cfg`: every movement and timing constant; the sim has no built-in defaults.
+- `data/maps/`: Map layouts as data (tile rows, wrap edges, object positions); `day.cfg` documents the format.
 - `test/`: gdUnit4 suites that test only through `Sim.create_match` and `Sim.step`.
 - `addons/gdUnit4/`: vendored gdUnit4 6.2.2.
 

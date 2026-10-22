@@ -1,21 +1,114 @@
 class_name MapData
 extends RefCounted
-## A Map's fixed layout. Shared, never modified, by every MatchState on it.
+## A Map's fixed layout, loaded from a data file (see data/maps/day.cfg for the
+## format). Shared, never modified, by every MatchState on it.
 ## Coordinates are milli-pixels in 1920x1080 space, y pointing down.
 
 const WIDTH := 1920 * 1000
 const HEIGHT := 1080 * 1000
 
-## y of the floor surface.
-var floor_y: int
-## Where each Seat's character starts (bottom-centre of its collider), by Seat.
-var spawns: Array[Vector2i]
+## What a row's side edges do to a character crossing them.
+enum Edge { BLOCKED, WRAP, WRAP_WORKERS_ONLY }
+
+const _EDGE_CHARS := {"|": Edge.BLOCKED, "~": Edge.WRAP, "w": Edge.WRAP_WORKERS_ONLY}
+const _PX := 1000
+
+var name: String
+## Side length of one collision tile.
+var tile_size: int
+var columns: int
+var rows: int
+## Row-major, one byte per tile: 1 if solid.
+var solid: PackedByteArray
+## Edge behaviour of each tile row.
+var edges: Array[Edge]
+
+## Spawn points per Team (indexed by Team, each an Array[Vector2i]): the nth
+## Seat of a Team spawns at its nth point. Bottom-centre of the character.
+var spawns: Array
+## Hive hole centres per Team (indexed by Team, each an Array[Vector2i]).
+var hive_holes: Array
+## Waiting Egg positions per Team (indexed by Team, each an Array[Vector2i]).
+var eggs: Array
+var warrior_gates: Array[Vector2i]
+var speed_gates: Array[Vector2i]
+## Bottom-centre of each Berry pile.
+var berry_piles: Array[Vector2i]
+var snail_start: Vector2i
+## Each Team's Snail Goal on the Snail track, indexed by Team.
+var snail_goals: Array[Vector2i]
 
 
-## A flat floor across the whole screen with every Seat spawning at the centre.
-static func test_floor(seat_count: int) -> MapData:
+static func load_file(path: String) -> MapData:
+	var cfg := ConfigFile.new()
+	var err := cfg.load(path)
+	assert(err == OK, "Could not load map file %s (error %d)" % [path, err])
+	return from_config(cfg)
+
+
+## Builds a Map from a parsed map file. Only [map] tile_size and tiles are
+## required; every object list is empty if left out.
+static func from_config(cfg: ConfigFile) -> MapData:
 	var map := MapData.new()
-	map.floor_y = 1000 * 1000
-	for i in seat_count:
-		map.spawns.append(Vector2i(WIDTH / 2, map.floor_y))
+	map.name = cfg.get_value("map", "name", "")
+	map.tile_size = cfg.get_value("map", "tile_size") * _PX
+	assert(WIDTH % map.tile_size == 0 and HEIGHT % map.tile_size == 0,
+		"tile_size must divide 1920 and 1080")
+	map.columns = WIDTH / map.tile_size
+	map.rows = HEIGHT / map.tile_size
+	map._parse_tiles(cfg.get_value("map", "tiles"))
+
+	map.spawns = [_points(cfg, "spawns", "blue"), _points(cfg, "spawns", "gold")]
+	map.hive_holes = [_points(cfg, "hive", "blue_holes"), _points(cfg, "hive", "gold_holes")]
+	map.eggs = [_points(cfg, "hive", "blue_eggs"), _points(cfg, "hive", "gold_eggs")]
+	map.warrior_gates = _points(cfg, "gates", "warrior")
+	map.speed_gates = _points(cfg, "gates", "speed")
+	map.berry_piles = _points(cfg, "berries", "piles")
+	map.snail_start = cfg.get_value("snail", "start", Vector2i.ZERO) * _PX
+	map.snail_goals.assign([
+		cfg.get_value("snail", "blue_goal", Vector2i.ZERO) * _PX,
+		cfg.get_value("snail", "gold_goal", Vector2i.ZERO) * _PX,
+	])
 	return map
+
+
+## Whether tile (column, row) is solid. Above and below the Map is solid; past
+## a side edge is solid on a BLOCKED row and the other side's tile on a
+## wrapping row. Every character is a Worker so far, so WRAP_WORKERS_ONLY
+## wraps like WRAP; winged characters must be blocked there once they exist.
+func is_solid(column: int, row: int) -> bool:
+	if row < 0 or row >= rows:
+		return true
+	if column < 0 or column >= columns:
+		if edges[row] == Edge.BLOCKED:
+			return true
+		column = posmod(column, columns)
+	return solid[row * columns + column] == 1
+
+
+## The tile index containing coordinate `v`, rounding toward negative infinity.
+func tile_of(v: int) -> int:
+	if v >= 0:
+		return v / tile_size
+	return -((-v + tile_size - 1) / tile_size)
+
+
+func _parse_tiles(lines: Array) -> void:
+	assert(lines.size() == rows, "Map needs %d tile rows, has %d" % [rows, lines.size()])
+	solid.resize(rows * columns)
+	for row in rows:
+		var line: String = lines[row]
+		assert(line.length() == columns + 1, "Tile row %d needs an edge char and %d tiles" % [row, columns])
+		assert(_EDGE_CHARS.has(line[0]), "Tile row %d has unknown edge '%s'" % [row, line[0]])
+		edges.append(_EDGE_CHARS[line[0]])
+		for column in columns:
+			var tile := line[column + 1]
+			assert(tile == "#" or tile == ".", "Unknown tile '%s' in row %d" % [tile, row])
+			solid[row * columns + column] = 1 if tile == "#" else 0
+
+
+static func _points(cfg: ConfigFile, section: String, key: String) -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	for p in cfg.get_value(section, key, []):
+		result.append(p * _PX)
+	return result
