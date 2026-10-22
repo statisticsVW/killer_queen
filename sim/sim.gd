@@ -4,6 +4,9 @@ extends RefCounted
 ## it one tick at a time. Pure GDScript and integer arithmetic only; nothing in
 ## here may touch Godot nodes, physics, floats or the clock (ADR-0001, ADR-0002).
 
+## The surface, if any, that stopped a character's vertical movement this tick.
+enum Contact { NONE, FLOOR, CEILING }
+
 
 static func create_match(config: MatchConfig) -> MatchState:
 	var state := MatchState.new()
@@ -33,9 +36,17 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 		var seat_input := input.seats[c.seat]
 		_run(c, seat_input, next.tuning)
 		_jump(c, seat_input, next.tuning)
-		_fall(c, next.tuning)
-		var standing := _move(c, next.map, next.tuning)
-		c.airborne_ticks = 0 if standing else c.airborne_ticks + 1
+		if c.stuck_ticks > 0:
+			c.stuck_ticks -= 1
+		else:
+			_fall(c, next.tuning)
+		var rising_speed := -c.vy
+		var contact := _move(c, next.map, next.tuning)
+		c.airborne_ticks = 0 if contact == Contact.FLOOR else c.airborne_ticks + 1
+		if contact == Contact.CEILING:
+			_hit_ceiling(c, rising_speed, next.tuning)
+		elif c.stuck_ticks > 0 and not _under_ceiling(c, next.map, next.tuning):
+			c.stuck_ticks = 0
 	return next
 
 
@@ -54,6 +65,8 @@ static func _run(c: CharacterState, input: SeatInput, t: Tuning) -> void:
 static func _jump(c: CharacterState, input: SeatInput, t: Tuning) -> void:
 	var pressed := input.button and not c.button_held
 	c.button_held = input.button
+	if c.stuck_ticks > 0:
+		return
 	if pressed and c.airborne_ticks <= t.worker_coyote_ticks:
 		c.vy = -t.worker_jump_speed
 		c.jumping = true
@@ -68,11 +81,35 @@ static func _fall(c: CharacterState, t: Tuning) -> void:
 	c.vy = mini(c.vy + t.worker_gravity, t.worker_max_fall_speed)
 
 
+## Hitting a ceiling slowly sticks to it for ceiling_stick_ticks: no falling
+## and no jumping, though the stick still steers sideways. Hitting it faster
+## than the ricochet threshold bounces down at ceiling_ricochet_speed.
+static func _hit_ceiling(c: CharacterState, rising_speed: int, t: Tuning) -> void:
+	c.jumping = false
+	if rising_speed > _ricochet_threshold(c, t):
+		c.vy = t.ceiling_ricochet_speed
+	else:
+		c.stuck_ticks = t.ceiling_stick_ticks
+
+
+## The upward speed above which hitting a ceiling ricochets instead of
+## sticking. The Speed upgrade raises it: ticket 13 applies its multiplier here.
+static func _ricochet_threshold(_c: CharacterState, t: Tuning) -> int:
+	return t.ceiling_ricochet_threshold
+
+
+## Whether solid tile is directly above the top of `c`'s collider.
+static func _under_ceiling(c: CharacterState, map: MapData, t: Tuning) -> bool:
+	var half_width := t.worker_width / 2
+	var row := map.tile_of(c.y - t.worker_height - 1)
+	return _row_blocked(map, row, map.tile_of(c.x - half_width), map.tile_of(c.x + half_width - 1))
+
+
 ## Moves `c` by its velocity, horizontally then vertically, stopping it flush
 ## against the first solid tile in its way and zeroing that velocity. Crossing
-## a wrapping side edge brings it in on the other side. Returns whether it
-## ended the tick standing on something.
-static func _move(c: CharacterState, map: MapData, t: Tuning) -> bool:
+## a wrapping side edge brings it in on the other side. Returns which surface,
+## if any, stopped its vertical movement.
+static func _move(c: CharacterState, map: MapData, t: Tuning) -> Contact:
 	var half_width := t.worker_width / 2
 	var height := t.worker_height
 	var size := map.tile_size
@@ -99,13 +136,13 @@ static func _move(c: CharacterState, map: MapData, t: Tuning) -> bool:
 	var first_column := map.tile_of(c.x - half_width)
 	var last_column := map.tile_of(c.x + half_width - 1)
 	var dy := c.vy
-	var standing := false
+	var contact := Contact.NONE
 	if c.vy > 0:
 		for row in range(map.tile_of(c.y), map.tile_of(c.y + c.vy - 1) + 1):
 			if _row_blocked(map, row, first_column, last_column):
 				dy = row * size - c.y
 				c.vy = 0
-				standing = true
+				contact = Contact.FLOOR
 				break
 	elif c.vy < 0:
 		var top := c.y - height
@@ -113,9 +150,10 @@ static func _move(c: CharacterState, map: MapData, t: Tuning) -> bool:
 			if _row_blocked(map, row, first_column, last_column):
 				dy = (row + 1) * size - top
 				c.vy = 0
+				contact = Contact.CEILING
 				break
 	c.y += dy
-	return standing
+	return contact
 
 
 static func _column_blocked(map: MapData, column: int, first_row: int, last_row: int) -> bool:

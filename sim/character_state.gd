@@ -21,6 +21,8 @@ var button_held: bool
 var airborne_ticks: int
 ## Rising from a jump whose button is still held; releasing it cuts the rise.
 var jumping: bool
+## Ticks left stuck to a ceiling; 0 when not stuck.
+var stuck_ticks: int
 
 
 func copy() -> CharacterState:
@@ -35,4 +37,5 @@ func copy() -> CharacterState:
 	c.button_held = button_held
 	c.airborne_ticks = airborne_ticks
 	c.jumping = jumping
+	c.stuck_ticks = stuck_ticks
 	return c
