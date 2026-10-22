@@ -1,0 +1,12 @@
+# Godot
+.godot/
+*.import
+export_presets.cfg
+.export/
+
+# OS / editor
+Thumbs.db
+.DS_Store
+
+# Replays and local dev data
+/replays/
