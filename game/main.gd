@@ -24,25 +24,37 @@ const BOLT := Color("ffe14d")
 const BERRY := Color("a63fc4")
 const SNAIL := Color("e86aa8")
 
-var _layouts: Array[KeyboardLayout] = [KeyboardLayout.wasd(), KeyboardLayout.arrows()]
+## Seats 0-4 are Blue, 5-9 Gold.
+const SEAT_TEAMS: Array[int] = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
+## The Seat each device drives, in device order (see _devices). Teams
+## alternate, so the first two players are opponents. Seats no device drives
+## stand idle.
+const DEVICE_SEATS: Array[int] = [0, 5, 1, 6, 2, 7, 3, 8, 4, 9]
+
+## Every device that can drive a Seat, in a fixed order: the two keyboard
+## layouts, then pads by Godot device id. Each has read() -> SeatInput.
+var _devices: Array = [KeyboardLayout.wasd(), KeyboardLayout.arrows()]
 var _previous: MatchState
 var _current: MatchState
 
 
 func _ready() -> void:
+	for device in DEVICE_SEATS.size() - _devices.size():
+		_devices.append(Pad.of(device))
 	var config := MatchConfig.new()
 	config.map = MapData.load_file(MAP_PATH)
-	config.seat_teams = [CharacterState.BLUE]
+	config.seat_teams = SEAT_TEAMS
 	config.tuning = Tuning.load_default()
 	_current = Sim.create_match(config)
 	_previous = _current
 
 
 func _physics_process(_delta: float) -> void:
-	var inputs: Array[SeatInput] = []
-	for layout in _layouts:
-		inputs.append(layout.read())
-	var seats: Array[SeatInput] = [KeyboardLayout.merge(inputs)]
+	var seats: Array[SeatInput] = []
+	for seat in SEAT_TEAMS.size():
+		seats.append(SeatInput.of(SeatInput.NEUTRAL))
+	for i in _devices.size():
+		seats[DEVICE_SEATS[i]] = _devices[i].read()
 	_previous = _current
 	_current = Sim.step(_current, TickInput.of(_current.tick, seats))
 

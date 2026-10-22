@@ -23,6 +23,12 @@ var airborne_ticks: int
 var jumping: bool
 ## Ticks left stuck to a ceiling; 0 when not stuck.
 var stuck_ticks: int
+## Ticks left of a Bump, during which the stick neither steers nor turns.
+var bump_ticks: int
+## Standing on an enemy's head at the end of this tick.
+var on_head: bool
+## Ticks left in which a jump springboards higher, after landing on a head.
+var springboard_ticks: int
 
 
 func copy() -> CharacterState:
@@ -38,4 +44,7 @@ func copy() -> CharacterState:
 	c.airborne_ticks = airborne_ticks
 	c.jumping = jumping
 	c.stuck_ticks = stuck_ticks
+	c.bump_ticks = bump_ticks
+	c.on_head = on_head
+	c.springboard_ticks = springboard_ticks
 	return c

@@ -7,22 +7,20 @@ extends RefCounted
 const TILE_PX := 120
 
 
-## A Map from tile rows, with Blue's spawn points given in whole pixels.
-static func build(tiles: Array[String], blue_spawns_px: Array[Vector2i]) -> MapData:
+## A Map from tile rows, with each Team's spawn points given in whole pixels.
+static func build(tiles: Array[String], blue_spawns_px: Array[Vector2i],
+		gold_spawns_px: Array[Vector2i] = []) -> MapData:
 	var cfg := ConfigFile.new()
 	cfg.set_value("map", "tile_size", TILE_PX)
 	cfg.set_value("map", "tiles", tiles)
 	cfg.set_value("spawns", "blue", blue_spawns_px)
+	cfg.set_value("spawns", "gold", gold_spawns_px)
 	return MapData.from_config(cfg)
 
 
-## A floor across the whole screen (top at y 960 px) with blocked side edges.
-## Every Seat spawns standing on it at the centre.
-static func flat_floor(seat_count: int) -> MapData:
-	var spawns: Array[Vector2i] = []
-	for i in seat_count:
-		spawns.append(Vector2i(960, 960))
-	return build([
+## Floor rows like flat_floor's, for building Maps with other spawns.
+static func floor_tiles() -> Array[String]:
+	return [
 		"|................",
 		"|................",
 		"|................",
@@ -32,4 +30,13 @@ static func flat_floor(seat_count: int) -> MapData:
 		"|................",
 		"|................",
 		"|################",
-	], spawns)
+	]
+
+
+## A floor across the whole screen (top at y 960 px) with blocked side edges.
+## Every Seat spawns standing on it at the centre.
+static func flat_floor(seat_count: int) -> MapData:
+	var spawns: Array[Vector2i] = []
+	for i in seat_count:
+		spawns.append(Vector2i(960, 960))
+	return build(floor_tiles(), spawns)

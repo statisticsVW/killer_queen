@@ -18,6 +18,10 @@ var worker_max_fall_speed: int
 var worker_jump_speed: int
 var worker_jump_release_speed: int
 var worker_coyote_ticks: int
+var worker_springboard_jump_speed: int
+var worker_springboard_ticks: int
+var bump_speed: int
+var bump_ticks: int
 var ceiling_stick_ticks: int
 var ceiling_ricochet_threshold: int
 var ceiling_ricochet_speed: int

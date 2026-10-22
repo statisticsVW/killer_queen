@@ -33,16 +33,3 @@ func read() -> SeatInput:
 	elif Input.is_physical_key_pressed(right) and not Input.is_physical_key_pressed(left):
 		horizontal = SeatInput.RIGHT
 	return SeatInput.of(horizontal, Input.is_physical_key_pressed(down), Input.is_physical_key_pressed(button))
-
-
-## Combines several players' inputs as if they shared one stick: opposing
-## directions cancel. Lets either layout drive a single Seat.
-static func merge(inputs: Array[SeatInput]) -> SeatInput:
-	var horizontal := 0
-	var down := false
-	var button := false
-	for input in inputs:
-		horizontal += input.horizontal
-		down = down or input.down
-		button = button or input.button
-	return SeatInput.of(signi(horizontal), down, button)
