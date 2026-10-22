@@ -21,3 +21,5 @@ The sim now applies gravity and terminal fall speed (`worker_gravity`, `worker_m
 Checked in the running game with injected keys: holding left from the Blue spawn walks down level by level, wraps at y 696, and reaches the floor; the floor wraps both ways; the top-level walls block at x 40 / 1880. Without a jump (ticket 03), the Worker can only go down. I checked the top levels by placing the Worker there.
 
 Still placeholders: object positions (only drawn, no behaviour), spawn order, Snail Goal points, gravity and terminal speed. Workers-only wraps behave like normal wraps until winged units exist (ticket 08). Starting barriers aren't in the data yet (ticket 16).
+
+Follow-up (requested by the user): Day now uses 12 px tiles (160x90). The two centre platforms are exactly their measured 900-1020 px, and every other platform end is within 6 px of Day-Start.png. Where two 12 px boundaries were equally close, the platform stays symmetric. The side walls are 12 px thick, so a Worker now stops at x 28 / 1892 px. Wrap rows still start at y 480, and no object or spawn moved. This replaces the "80x45 tiles of 24 px" and "144 px" details above.
