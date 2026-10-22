@@ -1,6 +1,5 @@
 # Godot
 .godot/
-*.import
 export_presets.cfg
 .export/
 
@@ -10,3 +9,6 @@ Thumbs.db
 
 # Replays and local dev data
 /replays/
+
+# gdUnit4 reports
+/reports/

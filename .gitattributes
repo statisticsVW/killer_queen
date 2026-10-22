@@ -1,0 +1,8 @@
+# Godot projects use LF; keep everything text as LF in the repo and working tree
+* text=auto eol=lf
+
+*.png binary
+*.wav binary
+*.ogg binary
+*.ttf binary
+*.zip binary
