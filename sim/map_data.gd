@@ -74,13 +74,12 @@ static func from_config(cfg: ConfigFile) -> MapData:
 
 ## Whether tile (column, row) is solid. Above and below the Map is solid; past
 ## a side edge is solid on a BLOCKED row and the other side's tile on a
-## wrapping row. Every character is a Worker so far, so WRAP_WORKERS_ONLY
-## wraps like WRAP; winged characters must be blocked there once they exist.
-func is_solid(column: int, row: int) -> bool:
+## wrapping row. A WRAP_WORKERS_ONLY row is blocked for `winged` characters.
+func is_solid(column: int, row: int, winged := false) -> bool:
 	if row < 0 or row >= rows:
 		return true
 	if column < 0 or column >= columns:
-		if edges[row] == Edge.BLOCKED:
+		if edges[row] == Edge.BLOCKED or (winged and edges[row] == Edge.WRAP_WORKERS_ONLY):
 			return true
 		column = posmod(column, columns)
 	return solid[row * columns + column] == 1

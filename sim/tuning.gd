@@ -25,6 +25,17 @@ var bump_ticks: int
 var ceiling_stick_ticks: int
 var ceiling_ricochet_threshold: int
 var ceiling_ricochet_speed: int
+var winged_width: int
+var winged_height: int
+var winged_gravity: int
+var winged_max_fall_speed: int
+var winged_flap_impulse: int
+var winged_max_rise_speed: int
+var winged_walk_speed_ratio: int
+var winged_air_brake_flaps: int
+var winged_air_brake_ticks: int
+var queen_dive_gravity: int
+var queen_dive_max_fall_speed: int
 
 
 static func load_default() -> Tuning:

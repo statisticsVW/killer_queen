@@ -5,6 +5,9 @@ extends RefCounted
 var tick: int
 ## Indexed by Seat.
 var seats: Array[SeatInput]
+## Dev command, standing in for Warrior Gates until ticket 13: Seats whose
+## Worker becomes a Warrior at the start of this tick.
+var dev_warrior_seats: Array[int]
 
 
 static func of(p_tick: int, p_seats: Array[SeatInput]) -> TickInput:

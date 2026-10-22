@@ -6,8 +6,12 @@ extends RefCounted
 const BLUE := 0
 const GOLD := 1
 
+## Queens and Warriors are winged: they Flap instead of jumping.
+enum Role { WORKER, QUEEN, WARRIOR }
+
 var seat: int
 var team: int
+var role: Role = Role.WORKER
 var x: int
 var y: int
 var vx: int
@@ -29,12 +33,23 @@ var bump_ticks: int
 var on_head: bool
 ## Ticks left in which a jump springboards higher, after landing on a head.
 var springboard_ticks: int
+## A Queen holding Down in the air this tick.
+var diving: bool
+## Flaps so far in the current air brake attempt, and ticks left in which it
+## can still complete; 0 when there is none.
+var air_brake_flaps: int
+var air_brake_ticks: int
+
+
+func is_winged() -> bool:
+	return role != Role.WORKER
 
 
 func copy() -> CharacterState:
 	var c := CharacterState.new()
 	c.seat = seat
 	c.team = team
+	c.role = role
 	c.x = x
 	c.y = y
 	c.vx = vx
@@ -47,4 +62,7 @@ func copy() -> CharacterState:
 	c.bump_ticks = bump_ticks
 	c.on_head = on_head
 	c.springboard_ticks = springboard_ticks
+	c.diving = diving
+	c.air_brake_flaps = air_brake_flaps
+	c.air_brake_ticks = air_brake_ticks
 	return c

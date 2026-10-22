@@ -23,9 +23,12 @@ const WINGS := Color("f2f2f2")
 const BOLT := Color("ffe14d")
 const BERRY := Color("a63fc4")
 const SNAIL := Color("e86aa8")
+const CROWN := Color("ffd23f")
 
 ## Seats 0-4 are Blue, 5-9 Gold.
 const SEAT_TEAMS: Array[int] = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
+## Each Team's first Seat is its Queen, so the two keyboards play the Queens.
+const QUEEN_SEATS: Array[int] = [0, 5]
 ## The Seat each device drives, in device order (see _devices). Teams
 ## alternate, so the first two players are opponents. Seats no device drives
 ## stand idle.
@@ -36,6 +39,8 @@ const DEVICE_SEATS: Array[int] = [0, 5, 1, 6, 2, 7, 3, 8, 4, 9]
 var _devices: Array = [KeyboardLayout.wasd(), KeyboardLayout.arrows()]
 var _previous: MatchState
 var _current: MatchState
+## Seats the Warrior dev command has been given for the next tick.
+var _dev_warrior_seats: Array[int] = []
 
 
 func _ready() -> void:
@@ -44,6 +49,7 @@ func _ready() -> void:
 	var config := MatchConfig.new()
 	config.map = MapData.load_file(MAP_PATH)
 	config.seat_teams = SEAT_TEAMS
+	config.queen_seats = QUEEN_SEATS
 	config.tuning = Tuning.load_default()
 	_current = Sim.create_match(config)
 	_previous = _current
@@ -55,8 +61,21 @@ func _physics_process(_delta: float) -> void:
 		seats.append(SeatInput.of(SeatInput.NEUTRAL))
 	for i in _devices.size():
 		seats[DEVICE_SEATS[i]] = _devices[i].read()
+	var input := TickInput.of(_current.tick, seats)
+	input.dev_warrior_seats = _dev_warrior_seats
+	_dev_warrior_seats = []
 	_previous = _current
-	_current = Sim.step(_current, TickInput.of(_current.tick, seats))
+	_current = Sim.step(_current, input)
+
+
+## Dev builds only, until Gates exist: a digit key makes that Seat's Worker a
+## Warrior.
+func _unhandled_key_input(event: InputEvent) -> void:
+	var key := event as InputEventKey
+	if not OS.is_debug_build() or not key.pressed or key.echo:
+		return
+	if key.physical_keycode >= KEY_0 and key.physical_keycode <= KEY_9:
+		_dev_warrior_seats.append(key.physical_keycode - KEY_0)
 
 
 func _process(_delta: float) -> void:
@@ -134,7 +153,8 @@ func _draw_objects(map: MapData) -> void:
 func _draw_characters() -> void:
 	var t := _current.tuning
 	var alpha := Engine.get_physics_interpolation_fraction()
-	var size := _to_pixels(Vector2i(t.worker_width, t.worker_height))
+	var worker_size := _to_pixels(Vector2i(t.worker_width, t.worker_height))
+	var winged_size := _to_pixels(Vector2i(t.winged_width, t.winged_height))
 	for i in _current.characters.size():
 		var now := _current.characters[i]
 		var before := _previous.characters[i]
@@ -146,16 +166,23 @@ func _draw_characters() -> void:
 		var feet := before_feet.lerp(now_feet, alpha)
 		# Draw a copy one screen width each side so a character straddling a
 		# wrap edge shows on both sides.
+		var size := winged_size if now.is_winged() else worker_size
 		for offset in [-SCREEN_WIDTH, 0, SCREEN_WIDTH]:
-			_draw_worker(feet + Vector2(offset, 0), size, now)
+			_draw_character(feet + Vector2(offset, 0), size, now)
 
 
-func _draw_worker(feet: Vector2, size: Vector2, c: CharacterState) -> void:
+## Placeholder: a Team-coloured collider box with an eye on its facing side.
+## Winged characters get a wing stripe, and Queens a crown.
+func _draw_character(feet: Vector2, size: Vector2, c: CharacterState) -> void:
 	var body := Rect2(feet - Vector2(size.x / 2, size.y), size).abs()
-	draw_rect(Rect2(body.position.round(), body.size), TEAM_COLOURS[c.team])
-	# Placeholder eye so facing is visible.
+	var top_left := body.position.round()
+	draw_rect(Rect2(top_left, body.size), TEAM_COLOURS[c.team])
 	var eye_x := body.get_center().x + c.facing * size.x / 4 - 1
 	draw_rect(Rect2(Vector2(eye_x, body.position.y + 4).round(), Vector2(2, 2)), Color.WHITE)
+	if c.is_winged():
+		draw_rect(Rect2(top_left + Vector2(-3, 10), Vector2(size.x + 6, 3)), WINGS)
+	if c.role == CharacterState.Role.QUEEN:
+		draw_rect(Rect2(top_left + Vector2(4, -4), Vector2(size.x - 8, 4)), CROWN)
 
 
 func _to_pixels(mpx: Vector2i) -> Vector2:
