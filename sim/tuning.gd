@@ -36,6 +36,8 @@ var winged_air_brake_flaps: int
 var winged_air_brake_ticks: int
 var queen_dive_gravity: int
 var queen_dive_max_fall_speed: int
+var respawn_ticks: int
+var respawn_invulnerable_ticks: int
 
 
 static func load_default() -> Tuning:

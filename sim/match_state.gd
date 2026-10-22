@@ -8,6 +8,8 @@ var tick: int
 var characters: Array[CharacterState]
 var map: MapData
 var tuning: Tuning
+## What happened during the tick that produced this state, in order.
+var events: Array[MatchEvent]
 
 
 func copy() -> MatchState:
@@ -15,6 +17,7 @@ func copy() -> MatchState:
 	s.tick = tick
 	for c in characters:
 		s.characters.append(c.copy())
+	s.events = events.duplicate()
 	s.map = map
 	s.tuning = tuning
 	return s

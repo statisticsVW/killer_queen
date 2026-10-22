@@ -24,6 +24,12 @@ const BOLT := Color("ffe14d")
 const BERRY := Color("a63fc4")
 const SNAIL := Color("e86aa8")
 const CROWN := Color("ffd23f")
+const POP := Color.WHITE
+
+## How long a kill pop shows, in physics ticks.
+const POP_TICKS := 15
+## Invulnerable characters blink: this many ticks shown, then as many hidden.
+const BLINK_TICKS := 3
 
 ## Seats 0-4 are Blue, 5-9 Gold.
 const SEAT_TEAMS: Array[int] = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
@@ -41,6 +47,9 @@ var _previous: MatchState
 var _current: MatchState
 ## Seats the Warrior dev command has been given for the next tick.
 var _dev_warrior_seats: Array[int] = []
+## Kill pops still showing: each {at: Vector2 (logical pixels), team: int,
+## age: int (ticks)}.
+var _pops: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -66,6 +75,21 @@ func _physics_process(_delta: float) -> void:
 	_dev_warrior_seats = []
 	_previous = _current
 	_current = Sim.step(_current, input)
+	_update_pops()
+
+
+## Ages the kill pops and starts one where each character died this tick.
+func _update_pops() -> void:
+	for pop in _pops:
+		pop.age += 1
+	_pops = _pops.filter(func(pop: Dictionary) -> bool: return pop.age < POP_TICKS)
+	var t := _current.tuning
+	for e in _current.events:
+		if e.type != MatchEvent.Type.DEATH:
+			continue
+		var c := _current.characters[e.seat]
+		var height := t.winged_height if c.is_winged() else t.worker_height
+		_pops.append({"at": _to_pixels(Vector2i(c.x, c.y - height / 2)), "team": c.team, "age": 0})
 
 
 ## Dev builds only, until Gates exist: a digit key makes that Seat's Worker a
@@ -89,6 +113,7 @@ func _draw() -> void:
 	_draw_tiles(map)
 	_draw_objects(map)
 	_draw_characters()
+	_draw_pops()
 
 
 func _draw_tiles(map: MapData) -> void:
@@ -157,7 +182,12 @@ func _draw_characters() -> void:
 	var winged_size := _to_pixels(Vector2i(t.winged_width, t.winged_height))
 	for i in _current.characters.size():
 		var now := _current.characters[i]
+		if not now.alive or (now.invulnerable_ticks / BLINK_TICKS) % 2 == 1:
+			continue
 		var before := _previous.characters[i]
+		# Don't slide across the screen from where a respawned character died.
+		if not before.alive:
+			before = now
 		var now_feet := _to_pixels(Vector2i(now.x, now.y))
 		var before_feet := _to_pixels(Vector2i(before.x, before.y))
 		# Interpolate across a wrap the short way round, not across the screen.
@@ -183,6 +213,15 @@ func _draw_character(feet: Vector2, size: Vector2, c: CharacterState) -> void:
 		draw_rect(Rect2(top_left + Vector2(-3, 10), Vector2(size.x + 6, 3)), WINGS)
 	if c.role == CharacterState.Role.QUEEN:
 		draw_rect(Rect2(top_left + Vector2(4, -4), Vector2(size.x - 8, 4)), CROWN)
+
+
+## Placeholder kill pop: a burst in the dead character's Team colour inside a
+## growing white ring.
+func _draw_pops() -> void:
+	for pop in _pops:
+		var grown := float(pop.age + 1) / POP_TICKS
+		draw_circle(pop.at, 14.0 * (1.0 - grown) + 2.0, TEAM_COLOURS[pop.team])
+		draw_arc(pop.at, 6.0 + 22.0 * grown, 0.0, TAU, 24, POP, 2.0)
 
 
 func _to_pixels(mpx: Vector2i) -> Vector2:

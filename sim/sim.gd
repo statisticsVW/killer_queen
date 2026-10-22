@@ -27,9 +27,9 @@ static func create_match(config: MatchConfig) -> MatchState:
 		else:
 			spawn_index = next_spawn[c.team]
 			next_spawn[c.team] += 1
-		var spawn: Vector2i = config.map.spawns[c.team][spawn_index]
-		c.x = spawn.x
-		c.y = spawn.y
+		c.spawn = config.map.spawns[c.team][spawn_index]
+		c.x = c.spawn.x
+		c.y = c.spawn.y
 		state.characters.append(c)
 	return state
 
@@ -40,15 +40,22 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 	assert(input.tick == state.tick, "Input for tick %d applied at tick %d" % [input.tick, state.tick])
 	var next := state.copy()
 	next.tick += 1
+	next.events = []
 	for seat in input.dev_warrior_seats:
 		var warrior := next.characters[seat]
-		if warrior.role == CharacterState.Role.WORKER:
+		if warrior.alive and warrior.role == CharacterState.Role.WORKER:
 			warrior.role = CharacterState.Role.WARRIOR
 			warrior.jumping = false
 	for c in next.characters:
 		var seat_input := input.seats[c.seat]
 		var pressed := seat_input.button and not c.button_held
 		c.button_held = seat_input.button
+		if not c.alive:
+			c.respawn_ticks -= 1
+			if c.respawn_ticks == 0:
+				_respawn(c, next)
+			continue
+		c.invulnerable_ticks = maxi(c.invulnerable_ticks - 1, 0)
 		_run(c, seat_input, next.tuning)
 		if c.is_winged():
 			# Gravity comes before the Flap, so an air brake ends the tick still.
@@ -171,9 +178,11 @@ static func _under_ceiling(c: CharacterState, map: MapData, t: Tuning) -> bool:
 		c.is_winged())
 
 
-## Resolves contact between enemies after everyone has moved, in Seat order.
-## A character that was above an enemy's head and comes down onto it stands
-## there; any other contact Bumps both. Teammates pass through each other.
+## Resolves contact between living enemies after everyone has moved, in Seat
+## order. A sword that can kill (see _kills) does; a sword touching an
+## invulnerable Worker passes through it. Otherwise a character that was above
+## an enemy's head and comes down onto it stands there, and any other contact
+## Bumps both. Teammates pass through each other.
 static func _collide_characters(before: MatchState, after: MatchState) -> void:
 	var t := after.tuning
 	var chars := after.characters
@@ -181,14 +190,61 @@ static func _collide_characters(before: MatchState, after: MatchState) -> void:
 		for j in range(i + 1, chars.size()):
 			var a := chars[i]
 			var b := chars[j]
-			if a.team == b.team or not _overlapping(a, b, t):
+			if a.team == b.team or not a.alive or not b.alive or not _overlapping(a, b, t):
 				continue
-			if _came_down_on(before.characters[i], before.characters[j], a, t):
+			if _kills(a, b):
+				_kill(b, a, after)
+			elif _kills(b, a):
+				_kill(a, b, after)
+			elif a.is_winged() != b.is_winged():
+				# A sword that didn't kill a Worker: it's invulnerable.
+				continue
+			elif _came_down_on(before.characters[i], before.characters[j], a, t):
 				_land_on_head(a, b, before.characters[i], t)
 			elif _came_down_on(before.characters[j], before.characters[i], b, t):
 				_land_on_head(b, a, before.characters[j], t)
 			else:
 				_bump(a, b, t)
+
+
+## Whether `killer`'s sword kills the enemy `victim` it is touching. Queens and
+## Warriors always have their swords out: one kills a Worker from any side, and
+## a Diving Queen kills anything whose feet are below hers. Nothing kills an
+## invulnerable character. Other winged contact is a Bump until ticket 11's
+## Joust.
+static func _kills(killer: CharacterState, victim: CharacterState) -> bool:
+	if not killer.is_winged() or victim.invulnerable_ticks > 0:
+		return false
+	return not victim.is_winged() or (killer.diving and killer.y < victim.y)
+
+
+## `victim` dies where it stands and will respawn after respawn_ticks.
+static func _kill(victim: CharacterState, killer: CharacterState, state: MatchState) -> void:
+	victim.alive = false
+	victim.respawn_ticks = state.tuning.respawn_ticks
+	victim.vx = 0
+	victim.vy = 0
+	victim.jumping = false
+	victim.stuck_ticks = 0
+	victim.bump_ticks = 0
+	victim.on_head = false
+	victim.springboard_ticks = 0
+	victim.diving = false
+	victim.air_brake_flaps = 0
+	victim.air_brake_ticks = 0
+	state.events.append(MatchEvent.of(MatchEvent.Type.KILL, killer.seat, victim.seat))
+	state.events.append(MatchEvent.of(MatchEvent.Type.DEATH, victim.seat, killer.seat))
+
+
+## Brings a dead character back at its spawn point, invulnerable. It doesn't
+## move on the tick it reappears.
+static func _respawn(c: CharacterState, state: MatchState) -> void:
+	c.alive = true
+	c.x = c.spawn.x
+	c.y = c.spawn.y
+	c.airborne_ticks = 0
+	c.invulnerable_ticks = state.tuning.respawn_invulnerable_ticks
+	state.events.append(MatchEvent.of(MatchEvent.Type.RESPAWN, c.seat))
 
 
 ## Whether `top` (last tick: `top_before`) has come down onto the head of the

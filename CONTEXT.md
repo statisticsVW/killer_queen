@@ -108,6 +108,14 @@ _Avoid_: Clang, parry
 The Queen's downward attack, triggered by holding the stick down while airborne. Kills anything beneath her.
 _Avoid_: Stomp, ground pound
 
+**Respawn**:
+A dead player's return after a fixed delay, at their spawn point in front of their Team's Hive, blinking and Invulnerable. A dead Queen instead hatches from her next Egg.
+_Avoid_: Revive, reset
+
+**Invulnerable**:
+Unable to be killed, for a short window shown by blinking: after a Respawn, and after emerging from a Gate. Enemy swords pass through an Invulnerable Worker.
+_Avoid_: I-frames, spawn protection, shielded
+
 ### Outcomes
 
 **Military Win**:

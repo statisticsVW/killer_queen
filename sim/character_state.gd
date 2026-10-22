@@ -39,6 +39,16 @@ var diving: bool
 ## can still complete; 0 when there is none.
 var air_brake_flaps: int
 var air_brake_ticks: int
+## Where the character respawns: its spawn point in front of its Team's Hive.
+var spawn: Vector2i
+## A dead character stays where it died, ignoring input and contact, until it
+## respawns.
+var alive: bool = true
+## Ticks left until a dead character respawns.
+var respawn_ticks: int
+## Ticks left in which enemy swords can't kill the character, counting this
+## one; 0 when it can be killed.
+var invulnerable_ticks: int
 
 
 func is_winged() -> bool:
@@ -65,4 +75,8 @@ func copy() -> CharacterState:
 	c.diving = diving
 	c.air_brake_flaps = air_brake_flaps
 	c.air_brake_ticks = air_brake_ticks
+	c.spawn = spawn
+	c.alive = alive
+	c.respawn_ticks = respawn_ticks
+	c.invulnerable_ticks = invulnerable_ticks
 	return c
