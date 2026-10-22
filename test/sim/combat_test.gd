@@ -85,14 +85,18 @@ func test_a_diving_queen_kills_a_warrior_beneath_her() -> void:
 	assert_bool(state.characters[1].alive).is_true()
 
 
-func test_a_queen_falling_onto_a_warrior_without_diving_stands_on_its_head() -> void:
-	var state := _match([Vector2i(960, 960)], [Vector2i(960, 400)], [1], [0])
+func test_a_dive_kills_however_little_higher_the_queen_is_than_a_joust_needs() -> void:
+	# A Joust margin taller than a collider: no Joust can be won by height.
+	var tuning := {"joust_height_margin": 100 * PX}
+	var falling := _match([Vector2i(960, 960)], [Vector2i(960, 400)], [1], [0], tuning)
+	var diving := _match([Vector2i(960, 960)], [Vector2i(960, 400)], [1], [0], tuning)
 
-	state = _hold(state, {}, 80)
+	falling = _hold(falling, {}, 80)
+	diving = _until_dead(diving, {1: SeatInput.of(SeatInput.NEUTRAL, true)}, 0)
 
-	assert_bool(state.characters[0].alive).is_true()
-	assert_bool(state.characters[1].alive).is_true()
-	assert_int(state.characters[1].y).is_equal(FLOOR_Y - state.tuning.winged_height)
+	assert_bool(falling.characters[0].alive).is_true()
+	assert_int(falling.characters[1].y).is_equal(FLOOR_Y - falling.tuning.winged_height)
+	assert_bool(diving.characters[0].alive).is_false()
 
 
 func test_a_dead_worker_respawns_at_its_spawn_point_after_the_respawn_delay() -> void:
@@ -148,9 +152,10 @@ func _worker_and(worker_px: Vector2i, other_px: Vector2i, role: CharacterState.R
 
 
 ## A Match on a floor (top at y 960 px), after one tick of neutral input in
-## which the dev command made `warriors` Warriors.
+## which the dev command made `warriors` Warriors. `tuning` overrides
+## constants.
 func _match(blue_px: Array[Vector2i], gold_px: Array[Vector2i], queens: Array[int],
-		warriors: Array[int]) -> MatchState:
+		warriors: Array[int], tuning := {}) -> MatchState:
 	var config := MatchConfig.new()
 	config.map = TestMaps.build(TestMaps.floor_tiles(), blue_px, gold_px)
 	var teams: Array[int] = []
@@ -160,8 +165,9 @@ func _match(blue_px: Array[Vector2i], gold_px: Array[Vector2i], queens: Array[in
 		teams.append(CharacterState.GOLD)
 	config.seat_teams = teams
 	config.queen_seats = queens
-	config.tuning = Tuning.load_default().with_values(
-		{"worker_run_accel": 1000 * PX, "worker_run_decel": 1000 * PX})
+	var overrides := {"worker_run_accel": 1000 * PX, "worker_run_decel": 1000 * PX}
+	overrides.merge(tuning, true)
+	config.tuning = Tuning.load_default().with_values(overrides)
 	return _step(Sim.create_match(config), {}, warriors)
 
 

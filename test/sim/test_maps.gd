@@ -8,13 +8,17 @@ const TILE_PX := 120
 
 
 ## A Map from tile rows, with each Team's spawn points given in whole pixels.
+## Each Team gets the same waiting Eggs, at `eggs_px`; by default there are
+## none, so a Queen's first death is her last.
 static func build(tiles: Array[String], blue_spawns_px: Array[Vector2i],
-		gold_spawns_px: Array[Vector2i] = []) -> MapData:
+		gold_spawns_px: Array[Vector2i] = [], eggs_px: Array[Vector2i] = []) -> MapData:
 	var cfg := ConfigFile.new()
 	cfg.set_value("map", "tile_size", TILE_PX)
 	cfg.set_value("map", "tiles", tiles)
 	cfg.set_value("spawns", "blue", blue_spawns_px)
 	cfg.set_value("spawns", "gold", gold_spawns_px)
+	cfg.set_value("hive", "blue_eggs", eggs_px)
+	cfg.set_value("hive", "gold_eggs", eggs_px)
 	return MapData.from_config(cfg)
 
 

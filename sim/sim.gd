@@ -31,16 +31,20 @@ static func create_match(config: MatchConfig) -> MatchState:
 		c.x = c.spawn.x
 		c.y = c.spawn.y
 		state.characters.append(c)
+	state.eggs.assign([config.map.eggs[0].size(), config.map.eggs[1].size()])
 	return state
 
 
 ## Returns the state one tick after `state`. `input` must be tagged with
-## state.tick, the tick it applies to.
+## state.tick, the tick it applies to. Once a Team has won, the Match is over:
+## stepping it changes nothing but the tick.
 static func step(state: MatchState, input: TickInput) -> MatchState:
 	assert(input.tick == state.tick, "Input for tick %d applied at tick %d" % [input.tick, state.tick])
 	var next := state.copy()
 	next.tick += 1
 	next.events = []
+	if next.win != MatchState.Win.NONE:
+		return next
 	for seat in input.dev_warrior_seats:
 		var warrior := next.characters[seat]
 		if warrior.alive and warrior.role == CharacterState.Role.WORKER:
@@ -51,9 +55,10 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 		var pressed := seat_input.button and not c.button_held
 		c.button_held = seat_input.button
 		if not c.alive:
-			c.respawn_ticks -= 1
-			if c.respawn_ticks == 0:
-				_respawn(c, next)
+			if c.respawn_ticks > 0:
+				c.respawn_ticks -= 1
+				if c.respawn_ticks == 0:
+					_respawn(c, next)
 			continue
 		c.invulnerable_ticks = maxi(c.invulnerable_ticks - 1, 0)
 		_run(c, seat_input, next.tuning)
@@ -179,25 +184,27 @@ static func _under_ceiling(c: CharacterState, map: MapData, t: Tuning) -> bool:
 
 
 ## Resolves contact between living enemies after everyone has moved, in Seat
-## order. A sword that can kill (see _kills) does; a sword touching an
-## invulnerable Worker passes through it. Otherwise a character that was above
-## an enemy's head and comes down onto it stands there, and any other contact
-## Bumps both. Teammates pass through each other.
+## order. A sword that wins (see _winner) kills; an enemy sword touching an
+## invulnerable character passes through it. Otherwise a character that was
+## above an enemy's head and comes down onto it stands there, and any other
+## contact Bumps both. Teammates pass through each other. Nothing more happens
+## once the Match is won.
 static func _collide_characters(before: MatchState, after: MatchState) -> void:
 	var t := after.tuning
 	var chars := after.characters
 	for i in chars.size():
 		for j in range(i + 1, chars.size()):
+			if after.win != MatchState.Win.NONE:
+				return
 			var a := chars[i]
 			var b := chars[j]
 			if a.team == b.team or not a.alive or not b.alive or not _overlapping(a, b, t):
 				continue
-			if _kills(a, b):
-				_kill(b, a, after)
-			elif _kills(b, a):
-				_kill(a, b, after)
-			elif a.is_winged() != b.is_winged():
-				# A sword that didn't kill a Worker: it's invulnerable.
+			var winner := _winner(a, b, t)
+			if winner != null:
+				var loser := b if winner == a else a
+				_kill(loser, winner, after)
+			elif (a.is_winged() and b.invulnerable_ticks > 0) or (b.is_winged() and a.invulnerable_ticks > 0):
 				continue
 			elif _came_down_on(before.characters[i], before.characters[j], a, t):
 				_land_on_head(a, b, before.characters[i], t)
@@ -207,21 +214,51 @@ static func _collide_characters(before: MatchState, after: MatchState) -> void:
 				_bump(a, b, t)
 
 
-## Whether `killer`'s sword kills the enemy `victim` it is touching. Queens and
-## Warriors always have their swords out: one kills a Worker from any side, and
-## a Diving Queen kills anything whose feet are below hers. Nothing kills an
-## invulnerable character. Other winged contact is a Bump until ticket 11's
-## Joust.
-static func _kills(killer: CharacterState, victim: CharacterState) -> bool:
-	if not killer.is_winged() or victim.invulnerable_ticks > 0:
-		return false
-	return not victim.is_winged() or (killer.diving and killer.y < victim.y)
+## Which of two touching enemies kills the other with its sword, or null.
+## Queens and Warriors always have their swords out; Workers have none. A sword
+## kills a Worker from any side. Two swords Joust: the higher wins, then, if
+## they are level, the one that ran into the other's back. Nothing kills an
+## invulnerable character.
+static func _winner(a: CharacterState, b: CharacterState, t: Tuning) -> CharacterState:
+	var winner: CharacterState = null
+	if a.is_winged() != b.is_winged():
+		winner = a if a.is_winged() else b
+	elif not a.is_winged():
+		return null
+	elif _above(a, b, t):
+		winner = a
+	elif _above(b, a, t):
+		winner = b
+	elif _behind(a, b):
+		winner = a
+	elif _behind(b, a):
+		winner = b
+	if winner == null or (b if winner == a else a).invulnerable_ticks > 0:
+		return null
+	return winner
 
 
-## `victim` dies where it stands and will respawn after respawn_ticks.
+## Whether `top`'s sword is higher than `under`'s: its feet are more than the
+## Joust height margin above, or above at all if it is a Diving Queen (the Dive
+## kills anything beneath her).
+static func _above(top: CharacterState, under: CharacterState, t: Tuning) -> bool:
+	var margin := 0 if top.diving else t.joust_height_margin
+	return top.y < under.y - margin
+
+
+## Whether `attacker` faces `victim` and `victim` faces away from it.
+static func _behind(attacker: CharacterState, victim: CharacterState) -> bool:
+	var towards_victim := signi(_wrapped_dx(attacker.x, victim.x))
+	return towards_victim != 0 and attacker.facing == towards_victim and victim.facing == towards_victim
+
+
+## `victim` dies where it stands. Anyone but a Queen respawns after
+## respawn_ticks. A Queen hatches from her Team's next waiting Egg after
+## respawn_queen_ticks; with none left she stays dead and the other Team wins.
 static func _kill(victim: CharacterState, killer: CharacterState, state: MatchState) -> void:
+	var t := state.tuning
 	victim.alive = false
-	victim.respawn_ticks = state.tuning.respawn_ticks
+	victim.respawn_ticks = t.respawn_ticks
 	victim.vx = 0
 	victim.vy = 0
 	victim.jumping = false
@@ -234,9 +271,22 @@ static func _kill(victim: CharacterState, killer: CharacterState, state: MatchSt
 	victim.air_brake_ticks = 0
 	state.events.append(MatchEvent.of(MatchEvent.Type.KILL, killer.seat, victim.seat))
 	state.events.append(MatchEvent.of(MatchEvent.Type.DEATH, victim.seat, killer.seat))
+	if victim.role != CharacterState.Role.QUEEN:
+		return
+	if state.eggs[victim.team] > 0:
+		state.eggs[victim.team] -= 1
+		victim.spawn = state.map.eggs[victim.team][state.eggs[victim.team]]
+		victim.respawn_ticks = t.respawn_queen_ticks
+		return
+	victim.respawn_ticks = 0
+	if state.win == MatchState.Win.NONE:
+		state.win = MatchState.Win.MILITARY
+		state.winner = killer.team
+		state.events.append(MatchEvent.win(killer.team))
 
 
-## Brings a dead character back at its spawn point, invulnerable. It doesn't
+## Brings a dead character back at its spawn point (a Queen at the Egg she
+## hatches from), invulnerable. A Warrior comes back as a Worker. It doesn't
 ## move on the tick it reappears.
 static func _respawn(c: CharacterState, state: MatchState) -> void:
 	c.alive = true
@@ -244,7 +294,10 @@ static func _respawn(c: CharacterState, state: MatchState) -> void:
 	c.y = c.spawn.y
 	c.airborne_ticks = 0
 	c.invulnerable_ticks = state.tuning.respawn_invulnerable_ticks
-	state.events.append(MatchEvent.of(MatchEvent.Type.RESPAWN, c.seat))
+	if c.role == CharacterState.Role.WARRIOR:
+		c.role = CharacterState.Role.WORKER
+	var type := MatchEvent.Type.HATCH if c.role == CharacterState.Role.QUEEN else MatchEvent.Type.RESPAWN
+	state.events.append(MatchEvent.of(type, c.seat))
 
 
 ## Whether `top` (last tick: `top_before`) has come down onto the head of the

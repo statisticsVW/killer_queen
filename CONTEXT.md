@@ -113,7 +113,7 @@ A dead player's return after a fixed delay, at their spawn point in front of the
 _Avoid_: Revive, reset
 
 **Invulnerable**:
-Unable to be killed, for a short window shown by blinking: after a Respawn, and after emerging from a Gate. Enemy swords pass through an Invulnerable Worker.
+Unable to be killed, for a short window shown by blinking: after a Respawn, and after emerging from a Gate. Enemy swords pass through an Invulnerable player.
 _Avoid_: I-frames, spawn protection, shielded
 
 ### Outcomes

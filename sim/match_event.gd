@@ -11,11 +11,16 @@ enum Type {
 	DEATH,
 	## `seat` came back to life at its spawn point.
 	RESPAWN,
+	## `seat`, a Queen, hatched from an Egg.
+	HATCH,
+	## `team` won the Match; MatchState.win says how.
+	WIN,
 }
 
 var type: Type
-var seat: int
+var seat: int = -1
 var other: int = -1
+var team: int = -1
 
 
 static func of(p_type: Type, p_seat: int, p_other := -1) -> MatchEvent:
@@ -23,4 +28,11 @@ static func of(p_type: Type, p_seat: int, p_other := -1) -> MatchEvent:
 	e.type = p_type
 	e.seat = p_seat
 	e.other = p_other
+	return e
+
+
+static func win(p_team: int) -> MatchEvent:
+	var e := MatchEvent.new()
+	e.type = Type.WIN
+	e.team = p_team
 	return e

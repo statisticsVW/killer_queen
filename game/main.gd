@@ -15,6 +15,7 @@ const GRASS := Color("3f9a2c")
 const WRAP_MARK := Color(1, 1, 1, 0.5)
 const WORKER_WRAP_MARK := Color(1, 0.6, 0.9, 0.7)
 const TEAM_COLOURS := [Color("2f6fdf"), Color("e8b020")]
+const TEAM_NAMES := ["BLUE", "GOLD"]
 const HIVE_COLOURS := [Color("1d4fa8"), Color("b8601c")]
 const HOLE := Color("102030")
 const EGG := Color("f4e04a")
@@ -114,6 +115,7 @@ func _draw() -> void:
 	_draw_objects(map)
 	_draw_characters()
 	_draw_pops()
+	_draw_win()
 
 
 func _draw_tiles(map: MapData) -> void:
@@ -147,8 +149,16 @@ func _draw_hives(map: MapData) -> void:
 		draw_rect(bounds.grow_individual(22, 32, 22, 0), HIVE_COLOURS[team])
 		for hole in map.hive_holes[team]:
 			draw_rect(Rect2(_to_pixels(hole) - Vector2(5, 4), Vector2(10, 8)), HOLE)
-		for egg in map.eggs[team]:
-			draw_rect(Rect2(_to_pixels(egg) - Vector2(10, 29), Vector2(20, 29)), EGG)
+		for i in _current.eggs[team]:
+			_draw_egg(map.eggs[team][i])
+	# A dead Queen who will hatch shows as the Egg she is hatching from.
+	for c in _current.characters:
+		if c.role == CharacterState.Role.QUEEN and not c.alive and c.respawn_ticks > 0:
+			_draw_egg(c.spawn)
+
+
+func _draw_egg(at: Vector2i) -> void:
+	draw_rect(Rect2(_to_pixels(at) - Vector2(10, 29), Vector2(20, 29)), EGG)
 
 
 ## Placeholder Gates, Berry piles, Snail and Snail Goals at their Map positions.
@@ -222,6 +232,20 @@ func _draw_pops() -> void:
 		var grown := float(pop.age + 1) / POP_TICKS
 		draw_circle(pop.at, 14.0 * (1.0 - grown) + 2.0, TEAM_COLOURS[pop.team])
 		draw_arc(pop.at, 6.0 + 22.0 * grown, 0.0, TAU, 24, POP, 2.0)
+
+
+## Placeholder until ticket 16's victory screen: the winning Team and win type
+## across the middle of the screen.
+func _draw_win() -> void:
+	if _current.win == MatchState.Win.NONE:
+		return
+	var text := "%s %s WIN" % [TEAM_NAMES[_current.winner], MatchState.Win.keys()[_current.win]]
+	var font := ThemeDB.fallback_font
+	var size := 32
+	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	var at := Vector2((SCREEN_WIDTH - width) / 2.0, 270)
+	draw_rect(Rect2(0, at.y - size, SCREEN_WIDTH, size * 1.5), Color(0, 0, 0, 0.6))
+	draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, TEAM_COLOURS[_current.winner])
 
 
 func _to_pixels(mpx: Vector2i) -> Vector2:

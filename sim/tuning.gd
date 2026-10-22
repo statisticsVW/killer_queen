@@ -38,6 +38,8 @@ var queen_dive_gravity: int
 var queen_dive_max_fall_speed: int
 var respawn_ticks: int
 var respawn_invulnerable_ticks: int
+var respawn_queen_ticks: int
+var joust_height_margin: int
 
 
 static func load_default() -> Tuning:
