@@ -30,9 +30,12 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 	var next := state.copy()
 	next.tick += 1
 	for c in next.characters:
-		_run(c, input.seats[c.seat], next.tuning)
+		var seat_input := input.seats[c.seat]
+		_run(c, seat_input, next.tuning)
+		_jump(c, seat_input, next.tuning)
 		_fall(c, next.tuning)
-		_move(c, next.map, next.tuning)
+		var standing := _move(c, next.map, next.tuning)
+		c.airborne_ticks = 0 if standing else c.airborne_ticks + 1
 	return next
 
 
@@ -44,14 +47,32 @@ static func _run(c: CharacterState, input: SeatInput, t: Tuning) -> void:
 		c.facing = input.horizontal
 
 
+## A press (not a hold) jumps while standing or within the coyote window after
+## leaving the ground; there is no buffer, so a press in the air is lost.
+## Releasing the button while rising from a jump cuts the rise to
+## jump_release_speed, so a tap gives a short hop and a hold a full jump.
+static func _jump(c: CharacterState, input: SeatInput, t: Tuning) -> void:
+	var pressed := input.button and not c.button_held
+	c.button_held = input.button
+	if pressed and c.airborne_ticks <= t.worker_coyote_ticks:
+		c.vy = -t.worker_jump_speed
+		c.jumping = true
+		# A jump uses up the coyote window.
+		c.airborne_ticks = t.worker_coyote_ticks + 1
+	elif c.jumping and (not input.button or c.vy >= 0):
+		c.jumping = false
+		c.vy = maxi(c.vy, -t.worker_jump_release_speed)
+
+
 static func _fall(c: CharacterState, t: Tuning) -> void:
 	c.vy = mini(c.vy + t.worker_gravity, t.worker_max_fall_speed)
 
 
 ## Moves `c` by its velocity, horizontally then vertically, stopping it flush
 ## against the first solid tile in its way and zeroing that velocity. Crossing
-## a wrapping side edge brings it in on the other side.
-static func _move(c: CharacterState, map: MapData, t: Tuning) -> void:
+## a wrapping side edge brings it in on the other side. Returns whether it
+## ended the tick standing on something.
+static func _move(c: CharacterState, map: MapData, t: Tuning) -> bool:
 	var half_width := t.worker_width / 2
 	var height := t.worker_height
 	var size := map.tile_size
@@ -78,11 +99,13 @@ static func _move(c: CharacterState, map: MapData, t: Tuning) -> void:
 	var first_column := map.tile_of(c.x - half_width)
 	var last_column := map.tile_of(c.x + half_width - 1)
 	var dy := c.vy
+	var standing := false
 	if c.vy > 0:
 		for row in range(map.tile_of(c.y), map.tile_of(c.y + c.vy - 1) + 1):
 			if _row_blocked(map, row, first_column, last_column):
 				dy = row * size - c.y
 				c.vy = 0
+				standing = true
 				break
 	elif c.vy < 0:
 		var top := c.y - height
@@ -92,6 +115,7 @@ static func _move(c: CharacterState, map: MapData, t: Tuning) -> void:
 				c.vy = 0
 				break
 	c.y += dy
+	return standing
 
 
 static func _column_blocked(map: MapData, column: int, first_row: int, last_row: int) -> bool:

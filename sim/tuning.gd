@@ -15,6 +15,9 @@ var worker_width: int
 var worker_height: int
 var worker_gravity: int
 var worker_max_fall_speed: int
+var worker_jump_speed: int
+var worker_jump_release_speed: int
+var worker_coyote_ticks: int
 
 
 static func load_default() -> Tuning:
