@@ -46,6 +46,12 @@ var berry_max_fall_speed: int
 var berry_friction: int
 var berry_kick_speed: int
 var berry_kick_lift: int
+var snail_speed: int
+var snail_speed_rider_ratio: int
+var snail_eat_ticks: int
+var snail_speed_rider_eat_ticks: int
+var snail_width: int
+var snail_height: int
 
 
 static func load_default() -> Tuning:

@@ -51,6 +51,8 @@ var respawn_ticks: int
 var invulnerable_ticks: int
 ## The index in MatchState.berries of the Berry this Worker carries, or -1.
 var berry: int = -1
+## Has the Speed upgrade: a Speed Worker, or a Speed Warrior.
+var speed: bool
 
 
 func is_winged() -> bool:
@@ -82,4 +84,5 @@ func copy() -> CharacterState:
 	c.respawn_ticks = respawn_ticks
 	c.invulnerable_ticks = invulnerable_ticks
 	c.berry = berry
+	c.speed = speed
 	return c

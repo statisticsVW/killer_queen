@@ -36,6 +36,8 @@ var warrior_gates: Array[Vector2i]
 var speed_gates: Array[Vector2i]
 ## Bottom-centre of each Berry pile.
 var berry_piles: Array[Vector2i]
+## Whether the Map has a Snail ([snail] start).
+var has_snail: bool
 var snail_start: Vector2i
 ## Each Team's Snail Goal on the Snail track, indexed by Team.
 var snail_goals: Array[Vector2i]
@@ -67,6 +69,7 @@ static func from_config(cfg: ConfigFile) -> MapData:
 	map.warrior_gates = _points(cfg, "gates", "warrior")
 	map.speed_gates = _points(cfg, "gates", "speed")
 	map.berry_piles = _points(cfg, "berries", "piles")
+	map.has_snail = cfg.has_section_key("snail", "start")
 	map.snail_start = cfg.get_value("snail", "start", Vector2i.ZERO) * _PX
 	map.snail_goals.assign([
 		cfg.get_value("snail", "blue_goal", Vector2i.ZERO) * _PX,

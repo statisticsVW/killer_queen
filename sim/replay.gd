@@ -6,7 +6,7 @@ extends RefCounted
 ## only human Seats' input needs keeping, and the Bot Difficulties join the
 ## config.
 
-const _VERSION := 1
+const _VERSION := 2
 
 var _map_source: String
 var _seat_teams: Array[int]
@@ -15,8 +15,10 @@ var _seed: int
 var _tuning: Dictionary
 ## One byte per Seat per tick, in tick then Seat order (see _encode).
 var _seat_codes := PackedByteArray()
-## Tick -> the dev Warrior command's Seats, for the ticks that have one.
+## Tick -> the dev Warrior and Speed commands' Seats, for the ticks that have
+## one.
 var _dev_warrior_seats := {}
+var _dev_speed_seats := {}
 
 
 ## An empty Replay of the Match `config` creates. add() each tick's input.
@@ -38,6 +40,8 @@ func add(input: TickInput) -> void:
 		_seat_codes.append(_encode(seat_input))
 	if not input.dev_warrior_seats.is_empty():
 		_dev_warrior_seats[input.tick] = input.dev_warrior_seats.duplicate()
+	if not input.dev_speed_seats.is_empty():
+		_dev_speed_seats[input.tick] = input.dev_speed_seats.duplicate()
 
 
 ## How many ticks of input the Replay holds.
@@ -68,6 +72,8 @@ func input(tick: int) -> TickInput:
 	var result := TickInput.of(tick, seats)
 	if _dev_warrior_seats.has(tick):
 		result.dev_warrior_seats.assign(_dev_warrior_seats[tick])
+	if _dev_speed_seats.has(tick):
+		result.dev_speed_seats.assign(_dev_speed_seats[tick])
 	return result
 
 
@@ -81,6 +87,7 @@ func to_text() -> String:
 		"tuning": _tuning,
 		"seat_codes": _seat_codes,
 		"dev_warrior_seats": _dev_warrior_seats,
+		"dev_speed_seats": _dev_speed_seats,
 	})
 
 
@@ -95,6 +102,7 @@ static func from_text(text: String) -> Replay:
 	replay._tuning = data.tuning
 	replay._seat_codes = data.seat_codes
 	replay._dev_warrior_seats = data.dev_warrior_seats
+	replay._dev_speed_seats = data.dev_speed_seats
 	return replay
 
 

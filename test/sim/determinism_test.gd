@@ -118,7 +118,7 @@ func _config(seed: int) -> MatchConfig:
 ## Every Seat's input for `state`'s tick, from a fixed hash of the tick and
 ## Seat: each Seat holds a stick direction for a while, presses the button in
 ## bursts and, for the Queens, sometimes Dives. Every few seconds a Seat's
-## Worker becomes a Warrior.
+## Worker becomes a Warrior, and another Seat gets the Speed upgrade.
 func _scripted_input(state: MatchState) -> TickInput:
 	var seats: Array[SeatInput] = []
 	for seat in state.characters.size():
@@ -130,6 +130,8 @@ func _scripted_input(state: MatchState) -> TickInput:
 	var input := TickInput.of(state.tick, seats)
 	if state.tick % 150 == 40:
 		input.dev_warrior_seats = [1 + _mix(state.tick) % 4 + 5 * (state.tick / 150 % 2)]
+	if state.tick % 150 == 90:
+		input.dev_speed_seats = [_mix(state.tick + 7) % 10]
 	return input
 
 

@@ -33,6 +33,10 @@ static func create_match(config: MatchConfig) -> MatchState:
 		state.characters.append(c)
 	state.eggs.assign([config.map.eggs[0].size(), config.map.eggs[1].size()])
 	state.rng = Rng.start(config.seed)
+	if config.map.has_snail:
+		state.snail = SnailState.new()
+		state.snail.x = config.map.snail_start.x
+		state.snail.y = config.map.snail_start.y
 	var size := config.tuning.berry_size
 	for pile in config.map.berry_piles:
 		# A triangle of six, a Berry apart: rows of three, two and one from the
@@ -62,6 +66,10 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 			warrior.role = CharacterState.Role.WARRIOR
 			warrior.jumping = false
 			_drop_berry(warrior, next)
+			_leave_snail(warrior, next)
+	for seat in input.dev_speed_seats:
+		if next.characters[seat].alive:
+			next.characters[seat].speed = true
 	for c in next.characters:
 		var seat_input := input.seats[c.seat]
 		var pressed := seat_input.button and not c.button_held
@@ -71,6 +79,14 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 				c.respawn_ticks -= 1
 				if c.respawn_ticks == 0:
 					_respawn(c, next)
+			continue
+		# The Snail carries its rider and holds its victim; a press gets the
+		# rider off, with a jump, unless the Snail is eating.
+		if next.snail != null and c.seat == next.snail.rider:
+			if not pressed or next.snail.victim != -1:
+				continue
+			_dismount(c, next)
+		elif next.snail != null and c.seat == next.snail.victim:
 			continue
 		c.invulnerable_ticks = maxi(c.invulnerable_ticks - 1, 0)
 		_run(c, seat_input, next.tuning)
@@ -90,7 +106,9 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 		elif c.stuck_ticks > 0 and not _under_ceiling(c, next.map, next.tuning):
 			c.stuck_ticks = 0
 		c.on_head = false
-	_collide_characters(state, next)
+	_update_snail(next)
+	if next.win == MatchState.Win.NONE:
+		_collide_characters(state, next)
 	if next.win == MatchState.Win.NONE:
 		_update_berries(next)
 	return next
@@ -266,11 +284,13 @@ static func _behind(attacker: CharacterState, victim: CharacterState) -> bool:
 	return towards_victim != 0 and attacker.facing == towards_victim and victim.facing == towards_victim
 
 
-## `victim` dies where it stands. Anyone but a Queen respawns after
-## respawn_ticks. A Queen hatches from her Team's next waiting Egg after
+## `victim` dies where it stands, killed by `killer` (null when the Snail ate
+## it), dropping any Berry and leaving the Snail. Anyone but a Queen respawns
+## after respawn_ticks. A Queen hatches from her Team's next waiting Egg after
 ## respawn_queen_ticks; with none left she stays dead and the other Team wins.
 static func _kill(victim: CharacterState, killer: CharacterState, state: MatchState) -> void:
 	var t := state.tuning
+	_leave_snail(victim, state)
 	victim.alive = false
 	victim.respawn_ticks = t.respawn_ticks
 	victim.vx = 0
@@ -284,8 +304,11 @@ static func _kill(victim: CharacterState, killer: CharacterState, state: MatchSt
 	victim.air_brake_flaps = 0
 	victim.air_brake_ticks = 0
 	_drop_berry(victim, state)
-	state.events.append(MatchEvent.of(MatchEvent.Type.KILL, killer.seat, victim.seat))
-	state.events.append(MatchEvent.of(MatchEvent.Type.DEATH, victim.seat, killer.seat))
+	var killer_seat := -1
+	if killer != null:
+		killer_seat = killer.seat
+		state.events.append(MatchEvent.of(MatchEvent.Type.KILL, killer.seat, victim.seat))
+	state.events.append(MatchEvent.of(MatchEvent.Type.DEATH, victim.seat, killer_seat))
 	if victim.role != CharacterState.Role.QUEEN:
 		return
 	if state.eggs[victim.team] > 0:
@@ -296,8 +319,8 @@ static func _kill(victim: CharacterState, killer: CharacterState, state: MatchSt
 	victim.respawn_ticks = 0
 	if state.win == MatchState.Win.NONE:
 		state.win = MatchState.Win.MILITARY
-		state.winner = killer.team
-		state.events.append(MatchEvent.win(killer.team))
+		state.winner = 1 - victim.team
+		state.events.append(MatchEvent.win(state.winner))
 
 
 ## Brings a dead character back at its spawn point (a Queen at the Egg she
@@ -313,6 +336,104 @@ static func _respawn(c: CharacterState, state: MatchState) -> void:
 		c.role = CharacterState.Role.WORKER
 	var type := MatchEvent.Type.HATCH if c.role == CharacterState.Role.QUEEN else MatchEvent.Type.RESPAWN
 	state.events.append(MatchEvent.of(type, c.seat))
+
+
+## The Snail, after characters have moved and before they collide. An eat
+## counts down and completes. Otherwise a ridden Snail moves toward its
+## rider's Snail Goal (faster for a Speed Worker), and reaching it is a Snail
+## Win. Then, in Seat order, an unridden Snail is mounted by the first living
+## Worker touching it (but not one that dismounted and hasn't yet stood on the
+## ground clear of it), and a ridden one that isn't eating starts to eat the
+## first enemy Worker touching its front. Its rider sits on top of it, facing
+## its goal.
+static func _update_snail(state: MatchState) -> void:
+	var s := state.snail
+	if s == null:
+		return
+	var t := state.tuning
+	if s.victim != -1:
+		s.eat_ticks -= 1
+		if s.eat_ticks == 0:
+			var eaten := state.characters[s.victim]
+			state.events.append(MatchEvent.of(MatchEvent.Type.EAT_COMPLETE, s.rider, s.victim))
+			s.victim = -1
+			_kill(eaten, null, state)
+	elif s.rider != -1:
+		var rider := state.characters[s.rider]
+		var goal: int = state.map.snail_goals[rider.team].x
+		var speed := t.snail_speed
+		if rider.speed:
+			speed = speed * t.snail_speed_rider_ratio / 10000
+		s.x += signi(goal - s.x) * mini(speed, absi(goal - s.x))
+		if s.x == goal:
+			state.win = MatchState.Win.SNAIL
+			state.winner = rider.team
+			state.events.append(MatchEvent.win(rider.team))
+	if s.dismounted != -1:
+		var left := state.characters[s.dismounted]
+		if not left.alive or (left.airborne_ticks == 0 and not _touches_snail(left, s, t)):
+			s.dismounted = -1
+	for c in state.characters:
+		if not c.alive or c.is_winged() or c.seat == s.rider or not _touches_snail(c, s, t):
+			continue
+		if s.rider == -1 and c.seat != s.dismounted:
+			s.rider = c.seat
+			c.invulnerable_ticks = 0
+			state.events.append(MatchEvent.of(MatchEvent.Type.SNAIL_MOUNT, c.seat))
+		elif s.rider != -1 and s.victim == -1 and c.team != state.characters[s.rider].team \
+				and (c.x - s.x) * _snail_heading(state) > 0:
+			s.victim = c.seat
+			s.eat_ticks = t.snail_speed_rider_eat_ticks if state.characters[s.rider].speed else t.snail_eat_ticks
+			c.vx = 0
+			c.vy = 0
+			c.invulnerable_ticks = 0
+			state.events.append(MatchEvent.of(MatchEvent.Type.EAT_START, s.rider, c.seat))
+	if s.rider != -1:
+		var rider := state.characters[s.rider]
+		rider.x = s.x
+		rider.y = s.y - t.snail_height
+		rider.vx = 0
+		rider.vy = 0
+		rider.jumping = false
+		rider.airborne_ticks = 0
+		if _snail_heading(state) != 0:
+			rider.facing = _snail_heading(state)
+
+
+## The way a ridden Snail moves: toward its rider's Snail Goal (-1 or 1), or 0
+## at the goal or unridden.
+static func _snail_heading(state: MatchState) -> int:
+	var s := state.snail
+	if s.rider == -1:
+		return 0
+	return signi(state.map.snail_goals[state.characters[s.rider].team].x - s.x)
+
+
+static func _touches_snail(c: CharacterState, s: SnailState, t: Tuning) -> bool:
+	return _boxes_overlap(c.x, c.y, _width(c, t), _height(c, t), s.x, s.y, t.snail_width, t.snail_height)
+
+
+## The rider gets off by the button: it is left standing on the Snail, to jump
+## off this tick as from the ground, and can't remount until it has stood on
+## the ground clear of the Snail.
+static func _dismount(c: CharacterState, state: MatchState) -> void:
+	state.snail.rider = -1
+	state.snail.dismounted = c.seat
+	c.airborne_ticks = 0
+	state.events.append(MatchEvent.of(MatchEvent.Type.SNAIL_DISMOUNT, c.seat))
+
+
+## `c` stops riding or being eaten by the Snail, if it was; an eat in
+## progress is interrupted, and its victim is free.
+static func _leave_snail(c: CharacterState, state: MatchState) -> void:
+	var s := state.snail
+	if s == null or (c.seat != s.rider and c.seat != s.victim):
+		return
+	if s.victim != -1:
+		state.events.append(MatchEvent.of(MatchEvent.Type.EAT_INTERRUPT, s.rider, s.victim))
+		s.victim = -1
+	if c.seat == s.rider:
+		s.rider = -1
 
 
 ## Berries, after characters have moved and collided: loose Berries move;

@@ -50,6 +50,8 @@ var _previous: MatchState
 var _current: MatchState
 ## Seats the Warrior dev command has been given for the next tick.
 var _dev_warrior_seats: Array[int] = []
+## Seats the Speed dev command has been given for the next tick.
+var _dev_speed_seats: Array[int] = []
 ## Kill pops still showing: each {at: Vector2 (logical pixels), team: int,
 ## age: int (ticks)}.
 var _pops: Array[Dictionary] = []
@@ -113,6 +115,8 @@ func _read_devices() -> TickInput:
 	var input := TickInput.of(_current.tick, seats)
 	input.dev_warrior_seats = _dev_warrior_seats
 	_dev_warrior_seats = []
+	input.dev_speed_seats = _dev_speed_seats
+	_dev_speed_seats = []
 	return input
 
 
@@ -167,13 +171,18 @@ func _update_pops() -> void:
 
 
 ## Dev builds only. Until Gates exist, a digit key makes that Seat's Worker a
-## Warrior. F9 plays back the last Match's Replay; F8 starts a new live Match.
+## Warrior, and Shift and a digit gives that Seat the Speed upgrade. F9 plays
+## back the last Match's Replay; F8 starts a new live Match.
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if not OS.is_debug_build() or not key.pressed or key.echo:
 		return
 	if key.physical_keycode >= KEY_0 and key.physical_keycode <= KEY_9:
-		_dev_warrior_seats.append(key.physical_keycode - KEY_0)
+		var seat := key.physical_keycode - KEY_0
+		if key.shift_pressed:
+			_dev_speed_seats.append(seat)
+		else:
+			_dev_warrior_seats.append(seat)
 	elif key.physical_keycode == KEY_F9:
 		_play_last_replay()
 	elif key.physical_keycode == KEY_F8:
@@ -191,6 +200,7 @@ func _draw() -> void:
 	_draw_hives(map)
 	_draw_tiles(map)
 	_draw_objects(map)
+	_draw_snail()
 	_draw_characters()
 	_draw_berries()
 	_draw_pops()
@@ -241,7 +251,7 @@ func _draw_egg(at: Vector2i) -> void:
 	draw_rect(Rect2(_to_pixels(at) - Vector2(10, 29), Vector2(20, 29)), EGG)
 
 
-## Placeholder Gates, Snail and Snail Goals at their Map positions.
+## Placeholder Gates and Snail Goals at their Map positions.
 func _draw_objects(map: MapData) -> void:
 	for gate in map.warrior_gates:
 		var base := _to_pixels(gate)
@@ -251,8 +261,6 @@ func _draw_objects(map: MapData) -> void:
 		var base := _to_pixels(gate)
 		draw_rect(Rect2(base - Vector2(14, 26), Vector2(28, 26)), GATE)
 		draw_rect(Rect2(base - Vector2(3, 24), Vector2(6, 20)), BOLT)
-	var snail := _to_pixels(map.snail_start)
-	draw_rect(Rect2(snail - Vector2(24, 26), Vector2(48, 26)), SNAIL)
 	for team in map.snail_goals.size():
 		var goal := _to_pixels(map.snail_goals[team])
 		draw_rect(Rect2(goal - Vector2(26, 30), Vector2(52, 30)), TEAM_COLOURS[team], false, 2)
@@ -284,14 +292,37 @@ func _draw_characters() -> void:
 			_draw_character(feet + Vector2(offset, 0), size, now)
 
 
+## Placeholder Snail: a pink box at its state position, with an eye on the
+## side it's heading (toward its rider's Snail Goal) and its mouth open,
+## darker, while it eats.
+func _draw_snail() -> void:
+	var s := _current.snail
+	if s == null:
+		return
+	var t := _current.tuning
+	var before_x := _previous.snail.x if _previous.snail != null else s.x
+	var x := lerpf(before_x, s.x, Engine.get_physics_interpolation_fraction())
+	var size := _to_pixels(Vector2i(t.snail_width, t.snail_height))
+	var feet := Vector2(x / MPX_PER_PIXEL, float(s.y) / MPX_PER_PIXEL)
+	var body := Rect2(feet - Vector2(size.x / 2, size.y), size)
+	draw_rect(body, SNAIL.darkened(0.3) if s.victim != -1 else SNAIL)
+	if s.rider != -1:
+		var heading := _current.characters[s.rider].facing
+		var eye := Vector2(body.get_center().x + heading * size.x / 3, body.position.y + 6)
+		draw_rect(Rect2(eye.round(), Vector2(3, 3)), Color.WHITE)
+
+
 ## Placeholder: a Team-coloured collider box with an eye on its facing side.
-## Winged characters get a wing stripe, and Queens a crown.
+## Winged characters get a wing stripe, Queens a crown, and Speed characters a
+## yellow belt.
 func _draw_character(feet: Vector2, size: Vector2, c: CharacterState) -> void:
 	var body := Rect2(feet - Vector2(size.x / 2, size.y), size).abs()
 	var top_left := body.position.round()
 	draw_rect(Rect2(top_left, body.size), TEAM_COLOURS[c.team])
 	var eye_x := body.get_center().x + c.facing * size.x / 4 - 1
 	draw_rect(Rect2(Vector2(eye_x, body.position.y + 4).round(), Vector2(2, 2)), Color.WHITE)
+	if c.speed:
+		draw_rect(Rect2(top_left + Vector2(0, body.size.y - 6), Vector2(body.size.x, 2)), BOLT)
 	if c.is_winged():
 		draw_rect(Rect2(top_left + Vector2(-3, 10), Vector2(size.x + 6, 3)), WINGS)
 	if c.role == CharacterState.Role.QUEEN:

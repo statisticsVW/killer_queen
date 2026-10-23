@@ -23,6 +23,8 @@ var winner: int = -1
 var rng: int
 ## Every Berry on the Map, in a fixed order: the piles' in Map order, six each.
 var berries: Array[BerryState]
+## The Snail, or null on a Map without one.
+var snail: SnailState
 
 
 func copy() -> MatchState:
@@ -35,6 +37,7 @@ func copy() -> MatchState:
 	s.win = win
 	s.winner = winner
 	s.rng = rng
+	s.snail = snail.copy() if snail != null else null
 	for b in berries:
 		s.berries.append(b.copy())
 	s.map = map

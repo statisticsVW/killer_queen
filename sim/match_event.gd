@@ -23,6 +23,17 @@ enum Type {
 	BERRY_DROP,
 	## `seat` kicked the loose Berry `other`.
 	BERRY_KICK,
+	## `seat` mounted the Snail.
+	SNAIL_MOUNT,
+	## `seat` got off the Snail.
+	SNAIL_DISMOUNT,
+	## The Snail ridden by `seat` started eating `other`.
+	EAT_START,
+	## The Snail ridden by `seat` finished eating `other`, who died.
+	EAT_COMPLETE,
+	## The eat of `other` by the Snail `seat` was riding ended early, `other`
+	## alive or killed by something else.
+	EAT_INTERRUPT,
 }
 
 var type: Type
