@@ -40,6 +40,12 @@ var respawn_ticks: int
 var respawn_invulnerable_ticks: int
 var respawn_queen_ticks: int
 var joust_height_margin: int
+var berry_size: int
+var berry_gravity: int
+var berry_max_fall_speed: int
+var berry_friction: int
+var berry_kick_speed: int
+var berry_kick_lift: int
 
 
 static func load_default() -> Tuning:

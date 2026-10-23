@@ -21,6 +21,8 @@ var win: Win = Win.NONE
 var winner: int = -1
 ## The random generator's state (see Rng).
 var rng: int
+## Every Berry on the Map, in a fixed order: the piles' in Map order, six each.
+var berries: Array[BerryState]
 
 
 func copy() -> MatchState:
@@ -33,6 +35,8 @@ func copy() -> MatchState:
 	s.win = win
 	s.winner = winner
 	s.rng = rng
+	for b in berries:
+		s.berries.append(b.copy())
 	s.map = map
 	s.tuning = tuning
 	return s

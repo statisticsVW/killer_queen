@@ -49,6 +49,8 @@ var respawn_ticks: int
 ## Ticks left in which enemy swords can't kill the character, counting this
 ## one; 0 when it can be killed.
 var invulnerable_ticks: int
+## The index in MatchState.berries of the Berry this Worker carries, or -1.
+var berry: int = -1
 
 
 func is_winged() -> bool:
@@ -79,4 +81,5 @@ func copy() -> CharacterState:
 	c.alive = alive
 	c.respawn_ticks = respawn_ticks
 	c.invulnerable_ticks = invulnerable_ticks
+	c.berry = berry
 	return c

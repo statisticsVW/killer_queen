@@ -33,6 +33,16 @@ static func create_match(config: MatchConfig) -> MatchState:
 		state.characters.append(c)
 	state.eggs.assign([config.map.eggs[0].size(), config.map.eggs[1].size()])
 	state.rng = Rng.start(config.seed)
+	var size := config.tuning.berry_size
+	for pile in config.map.berry_piles:
+		# A triangle of six, a Berry apart: rows of three, two and one from the
+		# bottom up.
+		for row in 3:
+			for i in 3 - row:
+				var b := BerryState.new()
+				b.x = pile.x + (2 * i - (2 - row)) * size / 2
+				b.y = pile.y - row * size
+				state.berries.append(b)
 	return state
 
 
@@ -51,6 +61,7 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 		if warrior.alive and warrior.role == CharacterState.Role.WORKER:
 			warrior.role = CharacterState.Role.WARRIOR
 			warrior.jumping = false
+			_drop_berry(warrior, next)
 	for c in next.characters:
 		var seat_input := input.seats[c.seat]
 		var pressed := seat_input.button and not c.button_held
@@ -72,7 +83,7 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 			_fall(c, seat_input, next.tuning)
 		c.stuck_ticks = maxi(c.stuck_ticks - 1, 0)
 		var rising_speed := -c.vy
-		var contact := _move(c, next.map, next.tuning)
+		var contact := _move_character(c, next.map, next.tuning)
 		c.airborne_ticks = 0 if contact == Contact.FLOOR else c.airborne_ticks + 1
 		if contact == Contact.CEILING:
 			_hit_ceiling(c, rising_speed, next.tuning)
@@ -80,6 +91,8 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 			c.stuck_ticks = 0
 		c.on_head = false
 	_collide_characters(state, next)
+	if next.win == MatchState.Win.NONE:
+		_update_berries(next)
 	return next
 
 
@@ -270,6 +283,7 @@ static func _kill(victim: CharacterState, killer: CharacterState, state: MatchSt
 	victim.diving = false
 	victim.air_brake_flaps = 0
 	victim.air_brake_ticks = 0
+	_drop_berry(victim, state)
 	state.events.append(MatchEvent.of(MatchEvent.Type.KILL, killer.seat, victim.seat))
 	state.events.append(MatchEvent.of(MatchEvent.Type.DEATH, victim.seat, killer.seat))
 	if victim.role != CharacterState.Role.QUEEN:
@@ -299,6 +313,124 @@ static func _respawn(c: CharacterState, state: MatchState) -> void:
 		c.role = CharacterState.Role.WORKER
 	var type := MatchEvent.Type.HATCH if c.role == CharacterState.Role.QUEEN else MatchEvent.Type.RESPAWN
 	state.events.append(MatchEvent.of(type, c.seat))
+
+
+## Berries, after characters have moved and collided: loose Berries move;
+## then, in Seat order, each living Worker carrying a Berry deposits it in an
+## empty hole of its Team's Hive that it touches, or else kicks any loose Berry
+## it runs into, and each empty-handed Worker picks up the first Berry it
+## touches (which ends its invulnerability). Carried Berries then ride on
+## their Workers' heads. Queens and Warriors pass through Berries.
+static func _update_berries(state: MatchState) -> void:
+	var t := state.tuning
+	for b in state.berries:
+		if b.where == BerryState.Where.LOOSE:
+			_move_berry(b, state)
+	for c in state.characters:
+		if not c.alive or c.is_winged():
+			continue
+		if c.berry == -1:
+			_pick_up(c, state)
+		elif not _deposit(c, state):
+			_kick(c, state)
+		if state.win != MatchState.Win.NONE:
+			return
+	for c in state.characters:
+		if c.berry != -1:
+			state.berries[c.berry].x = c.x
+			state.berries[c.berry].y = c.y - _height(c, t)
+
+
+## Gravity, then movement against terrain, then friction while on the ground.
+static func _move_berry(b: BerryState, state: MatchState) -> void:
+	var t := state.tuning
+	b.vy = mini(b.vy + t.berry_gravity, maxi(b.vy, t.berry_max_fall_speed))
+	if _move(b, t.berry_size / 2, t.berry_size, false, state.map) == Contact.FLOOR:
+		b.vx = _approach(b.vx, 0, t.berry_friction)
+
+
+static func _pick_up(c: CharacterState, state: MatchState) -> void:
+	for i in state.berries.size():
+		var b := state.berries[i]
+		if (b.where == BerryState.Where.PILE or b.where == BerryState.Where.LOOSE) \
+				and _touches_berry(c, b, state.tuning):
+			b.where = BerryState.Where.CARRIED
+			b.vx = 0
+			b.vy = 0
+			c.berry = i
+			c.invulnerable_ticks = 0
+			state.events.append(MatchEvent.of(MatchEvent.Type.BERRY_PICKUP, c.seat, i))
+			return
+
+
+## Deposits `c`'s Berry in the first empty hole of its Team's Hive whose centre
+## is inside `c`'s collider, if any; filling the last hole is an Economic Win.
+## Returns whether it deposited.
+static func _deposit(c: CharacterState, state: MatchState) -> bool:
+	var t := state.tuning
+	var holes: Array[Vector2i] = state.map.hive_holes[c.team]
+	var filled := _filled_holes(state, c.team)
+	for h in holes.size():
+		var hole := holes[h]
+		if filled.has(h) or absi(_wrapped_dx(c.x, hole.x)) >= _width(c, t) / 2 \
+				or hole.y < c.y - _height(c, t) or hole.y >= c.y:
+			continue
+		var b := state.berries[c.berry]
+		b.where = BerryState.Where.HIVE
+		b.team = c.team
+		b.hole = h
+		b.x = hole.x
+		b.y = hole.y + t.berry_size / 2
+		state.events.append(MatchEvent.of(MatchEvent.Type.BERRY_DEPOSIT, c.seat, c.berry))
+		c.berry = -1
+		if filled.size() + 1 == holes.size():
+			state.win = MatchState.Win.ECONOMIC
+			state.winner = c.team
+			state.events.append(MatchEvent.win(c.team))
+		return true
+	return false
+
+
+## The holes of `team`'s Hive that hold a Berry.
+static func _filled_holes(state: MatchState, team: int) -> Array[int]:
+	var filled: Array[int] = []
+	for b in state.berries:
+		if b.where == BerryState.Where.HIVE and b.team == team:
+			filled.append(b.hole)
+	return filled
+
+
+## A Worker carrying a Berry who runs into a loose one kicks it away from
+## itself (the way it faces, if level) at berry_kick_speed, unless it is
+## already flying away that fast.
+static func _kick(c: CharacterState, state: MatchState) -> void:
+	var t := state.tuning
+	for i in state.berries.size():
+		var b := state.berries[i]
+		if b.where != BerryState.Where.LOOSE or not _touches_berry(c, b, t):
+			continue
+		var away := signi(_wrapped_dx(c.x, b.x))
+		if away == 0:
+			away = c.facing
+		if b.vx * away >= t.berry_kick_speed:
+			continue
+		b.vx = away * t.berry_kick_speed
+		b.vy = -t.berry_kick_lift
+		state.events.append(MatchEvent.of(MatchEvent.Type.BERRY_KICK, c.seat, i))
+
+
+## A Berry `c` carries drops where it stands, as a loose Berry.
+static func _drop_berry(c: CharacterState, state: MatchState) -> void:
+	if c.berry == -1:
+		return
+	var b := state.berries[c.berry]
+	b.where = BerryState.Where.LOOSE
+	b.x = c.x
+	b.y = c.y
+	b.vx = 0
+	b.vy = 0
+	state.events.append(MatchEvent.of(MatchEvent.Type.BERRY_DROP, c.seat, c.berry))
+	c.berry = -1
 
 
 ## Whether `top` (last tick: `top_before`) has come down onto the head of the
@@ -337,8 +469,17 @@ static func _bump(a: CharacterState, b: CharacterState, t: Tuning) -> void:
 
 
 static func _overlapping(a: CharacterState, b: CharacterState, t: Tuning) -> bool:
-	return absi(_wrapped_dx(a.x, b.x)) < (_width(a, t) + _width(b, t)) / 2 \
-		and a.y - _height(a, t) < b.y and b.y - _height(b, t) < a.y
+	return _boxes_overlap(a.x, a.y, _width(a, t), _height(a, t), b.x, b.y, _width(b, t), _height(b, t))
+
+
+static func _touches_berry(c: CharacterState, b: BerryState, t: Tuning) -> bool:
+	return _boxes_overlap(c.x, c.y, _width(c, t), _height(c, t), b.x, b.y, t.berry_size, t.berry_size)
+
+
+## Whether two colliders, each given by its bottom-centre and size, overlap
+## (across the wrap too).
+static func _boxes_overlap(ax: int, ay: int, aw: int, ah: int, bx: int, by: int, bw: int, bh: int) -> bool:
+	return absi(_wrapped_dx(ax, bx)) < (aw + bw) / 2 and ay - ah < by and by - bh < ay
 
 
 ## Collider size: Queens and Warriors share one, Workers have their own.
@@ -361,28 +502,31 @@ static func _wrapped_dx(from: int, to: int) -> int:
 	return dx
 
 
-## Moves `c` by its velocity, horizontally then vertically, stopping it flush
-## against the first solid tile in its way and zeroing that velocity. Crossing
-## a wrapping side edge brings it in on the other side. Returns which surface,
-## if any, stopped its vertical movement.
-static func _move(c: CharacterState, map: MapData, t: Tuning) -> Contact:
-	var half_width := _width(c, t) / 2
-	var height := _height(c, t)
+static func _move_character(c: CharacterState, map: MapData, t: Tuning) -> Contact:
+	return _move(c, _width(c, t) / 2, _height(c, t), c.is_winged(), map)
+
+
+## Moves `c` (a character or a Berry: anything with x, y, vx and vy) with a
+## collider of the given size by its velocity, horizontally then vertically,
+## stopping it flush against the first solid tile in its way and zeroing that
+## velocity. Crossing a wrapping side edge brings it in on the other side;
+## `winged` bodies are blocked at Workers-only wraps. Returns which surface, if
+## any, stopped its vertical movement.
+static func _move(c, half_width: int, height: int, winged: bool, map: MapData) -> Contact:
 	var size := map.tile_size
-	var winged := c.is_winged()
 
 	var first_row := map.tile_of(c.y - height)
 	var last_row := map.tile_of(c.y - 1)
-	var dx := c.vx
+	var dx: int = c.vx
 	if c.vx > 0:
-		var right := c.x + half_width
+		var right: int = c.x + half_width
 		for column in range(map.tile_of(right), map.tile_of(right + c.vx - 1) + 1):
 			if _column_blocked(map, column, first_row, last_row, winged):
 				dx = column * size - right
 				c.vx = 0
 				break
 	elif c.vx < 0:
-		var left := c.x - half_width
+		var left: int = c.x - half_width
 		for column in range(map.tile_of(left - 1), map.tile_of(left + c.vx) - 1, -1):
 			if _column_blocked(map, column, first_row, last_row, winged):
 				dx = (column + 1) * size - left
@@ -392,7 +536,7 @@ static func _move(c: CharacterState, map: MapData, t: Tuning) -> Contact:
 
 	var first_column := map.tile_of(c.x - half_width)
 	var last_column := map.tile_of(c.x + half_width - 1)
-	var dy := c.vy
+	var dy: int = c.vy
 	var contact := Contact.NONE
 	if c.vy > 0:
 		for row in range(map.tile_of(c.y), map.tile_of(c.y + c.vy - 1) + 1):
@@ -402,7 +546,7 @@ static func _move(c: CharacterState, map: MapData, t: Tuning) -> Contact:
 				contact = Contact.FLOOR
 				break
 	elif c.vy < 0:
-		var top := c.y - height
+		var top: int = c.y - height
 		for row in range(map.tile_of(top - 1), map.tile_of(top + c.vy) - 1, -1):
 			if _row_blocked(map, row, first_column, last_column, winged):
 				dy = (row + 1) * size - top

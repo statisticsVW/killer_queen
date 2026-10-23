@@ -192,6 +192,7 @@ func _draw() -> void:
 	_draw_tiles(map)
 	_draw_objects(map)
 	_draw_characters()
+	_draw_berries()
 	_draw_pops()
 	_draw_win()
 	_draw_playback()
@@ -240,7 +241,7 @@ func _draw_egg(at: Vector2i) -> void:
 	draw_rect(Rect2(_to_pixels(at) - Vector2(10, 29), Vector2(20, 29)), EGG)
 
 
-## Placeholder Gates, Berry piles, Snail and Snail Goals at their Map positions.
+## Placeholder Gates, Snail and Snail Goals at their Map positions.
 func _draw_objects(map: MapData) -> void:
 	for gate in map.warrior_gates:
 		var base := _to_pixels(gate)
@@ -250,13 +251,6 @@ func _draw_objects(map: MapData) -> void:
 		var base := _to_pixels(gate)
 		draw_rect(Rect2(base - Vector2(14, 26), Vector2(28, 26)), GATE)
 		draw_rect(Rect2(base - Vector2(3, 24), Vector2(6, 20)), BOLT)
-	for pile in map.berry_piles:
-		# A triangle of six: rows of three, two and one from the bottom up.
-		var base := _to_pixels(pile)
-		for row in 3:
-			for i in 3 - row:
-				var centre := base + Vector2((i - (2 - row) / 2.0) * 7, -4 - row * 7)
-				draw_circle(centre, 3.5, BERRY)
 	var snail := _to_pixels(map.snail_start)
 	draw_rect(Rect2(snail - Vector2(24, 26), Vector2(48, 26)), SNAIL)
 	for team in map.snail_goals.size():
@@ -302,6 +296,23 @@ func _draw_character(feet: Vector2, size: Vector2, c: CharacterState) -> void:
 		draw_rect(Rect2(top_left + Vector2(-3, 10), Vector2(size.x + 6, 3)), WINGS)
 	if c.role == CharacterState.Role.QUEEN:
 		draw_rect(Rect2(top_left + Vector2(4, -4), Vector2(size.x - 8, 4)), CROWN)
+
+
+## Placeholder Berries: purple orbs, in piles, loose, on carriers' heads and
+## in Hive holes. Moving ones interpolate like characters.
+func _draw_berries() -> void:
+	var alpha := Engine.get_physics_interpolation_fraction()
+	var radius := float(_current.tuning.berry_size) / MPX_PER_PIXEL / 2
+	for i in _current.berries.size():
+		var now := _current.berries[i]
+		var before := _previous.berries[i]
+		if before.where != now.where and now.where != BerryState.Where.CARRIED:
+			before = now
+		var now_at := _to_pixels(Vector2i(now.x, now.y))
+		var before_at := _to_pixels(Vector2i(before.x, before.y))
+		if absf(now_at.x - before_at.x) > SCREEN_WIDTH / 2.0:
+			before_at = now_at
+		draw_circle(before_at.lerp(now_at, alpha) - Vector2(0, radius), radius, BERRY)
 
 
 ## Placeholder kill pop: a burst in the dead character's Team colour inside a

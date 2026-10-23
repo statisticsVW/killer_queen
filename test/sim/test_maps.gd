@@ -12,14 +12,22 @@ const TILE_PX := 120
 ## none, so a Queen's first death is her last.
 static func build(tiles: Array[String], blue_spawns_px: Array[Vector2i],
 		gold_spawns_px: Array[Vector2i] = [], eggs_px: Array[Vector2i] = []) -> MapData:
+	var cfg := config(tiles, blue_spawns_px, gold_spawns_px)
+	cfg.set_value("hive", "blue_eggs", eggs_px)
+	cfg.set_value("hive", "gold_eggs", eggs_px)
+	return MapData.from_config(cfg)
+
+
+## A map file with just tiles and spawn points, for tests to add other
+## objects to (in whole pixels) before MapData.from_config.
+static func config(tiles: Array[String], blue_spawns_px: Array[Vector2i],
+		gold_spawns_px: Array[Vector2i] = []) -> ConfigFile:
 	var cfg := ConfigFile.new()
 	cfg.set_value("map", "tile_size", TILE_PX)
 	cfg.set_value("map", "tiles", tiles)
 	cfg.set_value("spawns", "blue", blue_spawns_px)
 	cfg.set_value("spawns", "gold", gold_spawns_px)
-	cfg.set_value("hive", "blue_eggs", eggs_px)
-	cfg.set_value("hive", "gold_eggs", eggs_px)
-	return MapData.from_config(cfg)
+	return cfg
 
 
 ## Floor rows like flat_floor's, for building Maps with other spawns.

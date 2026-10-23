@@ -15,6 +15,14 @@ enum Type {
 	HATCH,
 	## `team` won the Match; MatchState.win says how.
 	WIN,
+	## `seat` picked up Berry `other` (an index in MatchState.berries).
+	BERRY_PICKUP,
+	## `seat` put Berry `other` in a hole of its Team's Hive.
+	BERRY_DEPOSIT,
+	## `seat` dropped Berry `other`, which is now loose.
+	BERRY_DROP,
+	## `seat` kicked the loose Berry `other`.
+	BERRY_KICK,
 }
 
 var type: Type
