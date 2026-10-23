@@ -49,17 +49,25 @@ static func create_match(config: MatchConfig) -> MatchState:
 		state.snail = SnailState.new()
 		state.snail.x = config.map.snail_start.x
 		state.snail.y = config.map.snail_start.y
-	var size := config.tuning.berry_size
-	for pile in config.map.berry_piles:
-		# A triangle of six, a Berry apart: rows of three, two and one from the
-		# bottom up.
+	for slot in _pile_slots(config.map, config.tuning):
+		var b := BerryState.new()
+		b.x = slot.x
+		b.y = slot.y
+		state.berries.append(b)
+	return state
+
+
+## Where each Berry of each of the Map's piles sits when the pile is full, in
+## Map order: a triangle of six, a Berry apart, in rows of three, two and one
+## from the bottom up.
+static func _pile_slots(map: MapData, t: Tuning) -> Array[Vector2i]:
+	var slots: Array[Vector2i] = []
+	var size := t.berry_size
+	for pile in map.berry_piles:
 		for row in 3:
 			for i in 3 - row:
-				var b := BerryState.new()
-				b.x = pile.x + (2 * i - (2 - row)) * size / 2
-				b.y = pile.y - row * size
-				state.berries.append(b)
-	return state
+				slots.append(Vector2i(pile.x + (2 * i - (2 - row)) * size / 2, pile.y - row * size))
+	return slots
 
 
 ## Returns the state one tick after `state`. `input` must be tagged with
@@ -122,6 +130,8 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 		_update_gates(next)
 	if next.win == MatchState.Win.NONE:
 		_update_berries(next, barriers)
+	if next.win == MatchState.Win.NONE:
+		_update_famine(next)
 	return next
 
 
@@ -563,6 +573,44 @@ static func _update_berries(state: MatchState, barriers: bool) -> void:
 		if c.berry != -1:
 			state.berries[c.berry].x = c.x
 			state.berries[c.berry].y = c.y - _height(c, t)
+
+
+## Famine, last in the tick. While it lasts it counts down, and as it ends
+## every pile is refilled. Otherwise, on a Map that has Berries, Famine starts
+## once every one of them is in a Hive or spent at a Gate: none is left in a
+## pile, loose or carried.
+static func _update_famine(state: MatchState) -> void:
+	if state.famine_ticks > 0:
+		state.famine_ticks -= 1
+		if state.famine_ticks == 0:
+			_refill_piles(state)
+			state.events.append(MatchEvent.of(MatchEvent.Type.FAMINE_END, -1))
+		return
+	if state.berries.is_empty():
+		return
+	for b in state.berries:
+		if b.where != BerryState.Where.HIVE and b.where != BerryState.Where.SPENT:
+			return
+	state.famine_ticks = state.tuning.famine_countdown_ticks
+	state.events.append(MatchEvent.of(MatchEvent.Type.FAMINE_START, -1))
+
+
+## Puts a Berry back in every pile slot: the spent Berries first, in index
+## order, then new ones appended to MatchState.berries for the slots left.
+## Berries in Hives stay there.
+static func _refill_piles(state: MatchState) -> void:
+	var spent := range(state.berries.size()).filter(
+		func(i: int) -> bool: return state.berries[i].where == BerryState.Where.SPENT)
+	for slot in _pile_slots(state.map, state.tuning):
+		var b: BerryState
+		if spent.is_empty():
+			b = BerryState.new()
+			state.berries.append(b)
+		else:
+			b = state.berries[spent.pop_front()]
+		b.where = BerryState.Where.PILE
+		b.x = slot.x
+		b.y = slot.y
 
 
 ## Gravity, then movement against terrain, then friction while on the ground.

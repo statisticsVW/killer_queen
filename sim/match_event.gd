@@ -44,6 +44,10 @@ enum Type {
 	TRANSFORM_INTERRUPT,
 	## `seat` emerged from Gate `other`, upgraded.
 	TRANSFORM_COMPLETE,
+	## The Map's last Berry was taken: Famine started (MatchState.famine_ticks).
+	FAMINE_START,
+	## Famine ended and the Berry piles refilled.
+	FAMINE_END,
 }
 
 var type: Type

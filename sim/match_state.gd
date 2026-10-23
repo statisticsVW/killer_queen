@@ -21,10 +21,13 @@ var win: Win = Win.NONE
 var winner: int = -1
 ## The random generator's state (see Rng).
 var rng: int
-## Every Berry on the Map, in a fixed order: the piles' in Map order, six each.
+## Every Berry on the Map, in a fixed order: the piles' in Map order, six each,
+## then any added when Famine refilled the piles.
 var berries: Array[BerryState]
 ## The Snail, or null on a Map without one.
 var snail: SnailState
+## Ticks left of Famine, counting this one; 0 when there is none.
+var famine_ticks: int
 ## Every Gate on the Map: its Warrior Gates, then its Speed Gates, each in Map
 ## order.
 var gates: Array[GateState]
@@ -48,6 +51,7 @@ func copy() -> MatchState:
 	s.winner = winner
 	s.rng = rng
 	s.snail = snail.copy() if snail != null else null
+	s.famine_ticks = famine_ticks
 	for b in berries:
 		s.berries.append(b.copy())
 	for g in gates:

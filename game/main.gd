@@ -330,6 +330,7 @@ func _draw() -> void:
 	_draw_berries()
 	_draw_pops()
 	_draw_countdown()
+	_draw_famine()
 	_draw_victory()
 	_draw_pause()
 	_draw_playback()
@@ -511,7 +512,8 @@ func _draw_berries() -> void:
 		var now := _current.berries[i]
 		if now.where == BerryState.Where.SPENT:
 			continue
-		var before := _previous.berries[i]
+		# Famine's end can add Berries the previous state didn't have.
+		var before := _previous.berries[i] if i < _previous.berries.size() else now
 		if before.where != now.where and now.where != BerryState.Where.CARRIED:
 			before = now
 		var now_at := _to_pixels(Vector2i(now.x, now.y))
@@ -540,6 +542,15 @@ func _draw_countdown() -> void:
 		text = "GO!"
 	if text != "":
 		_draw_centred(text, 300, 64, Color.WHITE)
+
+
+## During Famine, the time left until the Berry piles refill, as minutes and
+## seconds, under the Hives.
+func _draw_famine() -> void:
+	if _current.famine_ticks == 0:
+		return
+	var seconds := ceili(float(_current.famine_ticks) / Engine.physics_ticks_per_second)
+	_draw_centred("FAMINE %d:%02d" % [seconds / 60, seconds % 60], 150, 20, BERRY.lightened(0.5))
 
 
 ## Placeholder victory screen: the winning Team and how it won, then, after a
