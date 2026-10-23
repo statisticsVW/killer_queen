@@ -6,19 +6,17 @@ extends RefCounted
 ## only human Seats' input needs keeping, and the Bot Difficulties join the
 ## config.
 
-const _VERSION := 3
+const _VERSION := 4
 
 var _map_source: String
 var _seat_teams: Array[int]
 var _queen_seats: Array[int]
+var _warrior_seats: Array[int]
+var _speed_seats: Array[int]
 var _seed: int
 var _tuning: Dictionary
 ## One byte per Seat per tick, in tick then Seat order (see _encode).
 var _seat_codes := PackedByteArray()
-## Tick -> the dev Warrior and Speed commands' Seats, for the ticks that have
-## one.
-var _dev_warrior_seats := {}
-var _dev_speed_seats := {}
 
 
 ## An empty Replay of the Match `config` creates. add() each tick's input.
@@ -27,6 +25,8 @@ static func record(config: MatchConfig) -> Replay:
 	replay._map_source = config.map.source
 	replay._seat_teams = config.seat_teams.duplicate()
 	replay._queen_seats = config.queen_seats.duplicate()
+	replay._warrior_seats = config.warrior_seats.duplicate()
+	replay._speed_seats = config.speed_seats.duplicate()
 	replay._seed = config.seed
 	replay._tuning = config.tuning.values()
 	return replay
@@ -38,10 +38,6 @@ func add(input: TickInput) -> void:
 	assert(input.seats.size() == _seat_teams.size(), "Replay input needs one SeatInput per Seat")
 	for seat_input in input.seats:
 		_seat_codes.append(_encode(seat_input))
-	if not input.dev_warrior_seats.is_empty():
-		_dev_warrior_seats[input.tick] = input.dev_warrior_seats.duplicate()
-	if not input.dev_speed_seats.is_empty():
-		_dev_speed_seats[input.tick] = input.dev_speed_seats.duplicate()
 
 
 ## How many ticks of input the Replay holds.
@@ -58,6 +54,8 @@ func config() -> MatchConfig:
 	config.map = MapData.from_config(cfg)
 	config.seat_teams = _seat_teams.duplicate()
 	config.queen_seats = _queen_seats.duplicate()
+	config.warrior_seats = _warrior_seats.duplicate()
+	config.speed_seats = _speed_seats.duplicate()
 	config.seed = _seed
 	config.tuning = Tuning.from_values(_tuning)
 	return config
@@ -69,12 +67,7 @@ func input(tick: int) -> TickInput:
 	var first := tick * _seat_teams.size()
 	for i in _seat_teams.size():
 		seats.append(_decode(_seat_codes[first + i]))
-	var result := TickInput.of(tick, seats)
-	if _dev_warrior_seats.has(tick):
-		result.dev_warrior_seats.assign(_dev_warrior_seats[tick])
-	if _dev_speed_seats.has(tick):
-		result.dev_speed_seats.assign(_dev_speed_seats[tick])
-	return result
+	return TickInput.of(tick, seats)
 
 
 func to_text() -> String:
@@ -83,11 +76,11 @@ func to_text() -> String:
 		"map": _map_source,
 		"seat_teams": _seat_teams,
 		"queen_seats": _queen_seats,
+		"warrior_seats": _warrior_seats,
+		"speed_seats": _speed_seats,
 		"seed": _seed,
 		"tuning": _tuning,
 		"seat_codes": _seat_codes,
-		"dev_warrior_seats": _dev_warrior_seats,
-		"dev_speed_seats": _dev_speed_seats,
 	})
 
 
@@ -98,11 +91,11 @@ static func from_text(text: String) -> Replay:
 	replay._map_source = data.map
 	replay._seat_teams.assign(data.seat_teams)
 	replay._queen_seats.assign(data.queen_seats)
+	replay._warrior_seats.assign(data.warrior_seats)
+	replay._speed_seats.assign(data.speed_seats)
 	replay._seed = data.seed
 	replay._tuning = data.tuning
 	replay._seat_codes = data.seat_codes
-	replay._dev_warrior_seats = data.dev_warrior_seats
-	replay._dev_speed_seats = data.dev_speed_seats
 	return replay
 
 

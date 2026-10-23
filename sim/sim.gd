@@ -13,7 +13,8 @@ static func create_match(config: MatchConfig) -> MatchState:
 	state.map = config.map
 	state.tuning = config.tuning
 	# A Team's Queen takes its first spawn point; its other Seats take the
-	# following points in Seat order.
+	# following points in Seat order, as Workers unless the config starts them
+	# upgraded.
 	var next_spawn := [0, 0]
 	for seat in config.queen_seats:
 		next_spawn[config.seat_teams[seat]] = 1
@@ -27,12 +28,23 @@ static func create_match(config: MatchConfig) -> MatchState:
 		else:
 			spawn_index = next_spawn[c.team]
 			next_spawn[c.team] += 1
+			if seat in config.warrior_seats:
+				c.role = CharacterState.Role.WARRIOR
+			c.speed = seat in config.speed_seats
 		c.spawn = config.map.spawns[c.team][spawn_index]
 		c.x = c.spawn.x
 		c.y = c.spawn.y
 		state.characters.append(c)
 	state.eggs.assign([config.map.eggs[0].size(), config.map.eggs[1].size()])
 	state.rng = Rng.start(config.seed)
+	for type in [GateState.Type.WARRIOR, GateState.Type.SPEED]:
+		var positions := config.map.warrior_gates if type == GateState.Type.WARRIOR else config.map.speed_gates
+		for at in positions:
+			var g := GateState.new()
+			g.type = type
+			g.x = at.x
+			g.y = at.y
+			state.gates.append(g)
 	if config.map.has_snail:
 		state.snail = SnailState.new()
 		state.snail.x = config.map.snail_start.x
@@ -64,16 +76,6 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 		return next
 	# The starting barriers stand for inputs tagged within the countdown.
 	var barriers := state.countdown_ticks() > 0
-	for seat in input.dev_warrior_seats:
-		var warrior := next.characters[seat]
-		if warrior.alive and warrior.role == CharacterState.Role.WORKER:
-			warrior.role = CharacterState.Role.WARRIOR
-			warrior.jumping = false
-			_drop_berry(warrior, next)
-			_leave_snail(warrior, next)
-	for seat in input.dev_speed_seats:
-		if next.characters[seat].alive:
-			next.characters[seat].speed = true
 	for c in next.characters:
 		var seat_input := input.seats[c.seat]
 		var pressed := seat_input.button and not c.button_held
@@ -91,6 +93,9 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 				continue
 			_dismount(c, next)
 		elif next.snail != null and c.seat == next.snail.victim:
+			continue
+		# A Worker transforming in a Gate stays put.
+		if c.gate != -1:
 			continue
 		c.invulnerable_ticks = maxi(c.invulnerable_ticks - 1, 0)
 		_run(c, seat_input, next.tuning)
@@ -114,6 +119,8 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 	if next.win == MatchState.Win.NONE:
 		_collide_characters(state, next)
 	if next.win == MatchState.Win.NONE:
+		_update_gates(next)
+	if next.win == MatchState.Win.NONE:
 		_update_berries(next, barriers)
 	return next
 
@@ -123,6 +130,8 @@ static func _run(c: CharacterState, input: SeatInput, t: Tuning) -> void:
 		c.bump_ticks -= 1
 		return
 	var max_speed := t.worker_max_speed
+	if c.speed:
+		max_speed = max_speed * t.speed_ratio / 10000
 	if c.is_winged() and c.airborne_ticks == 0:
 		max_speed = max_speed * t.winged_walk_speed_ratio / 10000
 	var target := input.horizontal * max_speed
@@ -154,8 +163,8 @@ static func _jump(c: CharacterState, pressed: bool, held: bool, t: Tuning) -> vo
 
 
 ## A winged press is one Flap: it adds flap_impulse of upward speed, up to
-## max_rise_speed, and holding the button adds nothing more. Flaps do nothing
-## while stuck to a ceiling or Diving. air_brake_flaps Flaps, the first made at
+## max_rise_speed (raised by the Speed upgrade), and holding the button adds
+## nothing more. Flaps do nothing while stuck to a ceiling or Diving. air_brake_flaps Flaps, the first made at
 ## terminal fall speed and the last fewer than air_brake_ticks ticks after it,
 ## stop the fall dead.
 static func _flap(c: CharacterState, pressed: bool, t: Tuning) -> void:
@@ -172,7 +181,10 @@ static func _flap(c: CharacterState, pressed: bool, t: Tuning) -> void:
 		c.air_brake_ticks = 0
 		c.vy = 0
 		return
-	c.vy = maxi(c.vy - t.winged_flap_impulse, -t.winged_max_rise_speed)
+	var max_rise := t.winged_max_rise_speed
+	if c.speed:
+		max_rise = max_rise * t.speed_ratio / 10000
+	c.vy = maxi(c.vy - t.winged_flap_impulse, -max_rise)
 
 
 ## Gravity, unless stuck to a ceiling. A Queen holding Down in the air Dives:
@@ -206,9 +218,9 @@ static func _hit_ceiling(c: CharacterState, rising_speed: int, t: Tuning) -> voi
 
 
 ## The upward speed above which hitting a ceiling ricochets instead of
-## sticking. The Speed upgrade raises it: ticket 13 applies its multiplier here.
-static func _ricochet_threshold(_c: CharacterState, t: Tuning) -> int:
-	return t.ceiling_ricochet_threshold
+## sticking, higher with the Speed upgrade.
+static func _ricochet_threshold(c: CharacterState, t: Tuning) -> int:
+	return t.ceiling_speed_ricochet_threshold if c.speed else t.ceiling_ricochet_threshold
 
 
 ## Whether solid tile is directly above the top of `c`'s collider.
@@ -223,8 +235,9 @@ static func _under_ceiling(c: CharacterState, map: MapData, t: Tuning, barriers:
 ## order. A sword that wins (see _winner) kills; an enemy sword touching an
 ## invulnerable character passes through it. Otherwise a character that was
 ## above an enemy's head and comes down onto it stands there, and any other
-## contact Bumps both. Teammates pass through each other. Nothing more happens
-## once the Match is won.
+## contact Bumps both. Teammates pass through each other, and everyone passes
+## through a Worker locked in a Gate. Nothing more happens once the Match is
+## won.
 static func _collide_characters(before: MatchState, after: MatchState) -> void:
 	var t := after.tuning
 	var chars := after.characters
@@ -234,7 +247,8 @@ static func _collide_characters(before: MatchState, after: MatchState) -> void:
 				return
 			var a := chars[i]
 			var b := chars[j]
-			if a.team == b.team or not a.alive or not b.alive or not _overlapping(a, b, t):
+			if a.team == b.team or not a.alive or not b.alive or a.is_locked_in(t) or b.is_locked_in(t) \
+					or not _overlapping(a, b, t):
 				continue
 			var winner := _winner(a, b, t)
 			if winner != null:
@@ -247,7 +261,7 @@ static func _collide_characters(before: MatchState, after: MatchState) -> void:
 			elif _came_down_on(before.characters[j], before.characters[i], b, t):
 				_land_on_head(b, a, before.characters[j], t)
 			else:
-				_bump(a, b, t)
+				_bump(a, b, after)
 
 
 ## Which of two touching enemies kills the other with its sword, or null.
@@ -289,12 +303,14 @@ static func _behind(attacker: CharacterState, victim: CharacterState) -> bool:
 
 
 ## `victim` dies where it stands, killed by `killer` (null when the Snail ate
-## it), dropping any Berry and leaving the Snail. Anyone but a Queen respawns
-## after respawn_ticks. A Queen hatches from her Team's next waiting Egg after
-## respawn_queen_ticks; with none left she stays dead and the other Team wins.
+## it), dropping any Berry and leaving the Snail or a Gate. Anyone but a Queen
+## respawns after respawn_ticks. A Queen hatches from her Team's next waiting
+## Egg after respawn_queen_ticks; with none left she stays dead and the other
+## Team wins.
 static func _kill(victim: CharacterState, killer: CharacterState, state: MatchState) -> void:
 	var t := state.tuning
 	_leave_snail(victim, state)
+	_leave_gate(victim, state)
 	victim.alive = false
 	victim.respawn_ticks = t.respawn_ticks
 	victim.vx = 0
@@ -328,8 +344,8 @@ static func _kill(victim: CharacterState, killer: CharacterState, state: MatchSt
 
 
 ## Brings a dead character back at its spawn point (a Queen at the Egg she
-## hatches from), invulnerable. A Warrior comes back as a Worker. It doesn't
-## move on the tick it reappears.
+## hatches from), invulnerable. Anyone else comes back as a plain Worker,
+## without its upgrades. It doesn't move on the tick it reappears.
 static func _respawn(c: CharacterState, state: MatchState) -> void:
 	c.alive = true
 	c.x = c.spawn.x
@@ -338,6 +354,7 @@ static func _respawn(c: CharacterState, state: MatchState) -> void:
 	c.invulnerable_ticks = state.tuning.respawn_invulnerable_ticks
 	if c.role == CharacterState.Role.WARRIOR:
 		c.role = CharacterState.Role.WORKER
+	c.speed = false
 	var type := MatchEvent.Type.HATCH if c.role == CharacterState.Role.QUEEN else MatchEvent.Type.RESPAWN
 	state.events.append(MatchEvent.of(type, c.seat))
 
@@ -378,7 +395,7 @@ static func _update_snail(state: MatchState) -> void:
 		if not left.alive or (left.airborne_ticks == 0 and not _touches_snail(left, s, t)):
 			s.dismounted = -1
 	for c in state.characters:
-		if not c.alive or c.is_winged() or c.seat == s.rider or not _touches_snail(c, s, t):
+		if not c.alive or c.is_winged() or c.seat == s.rider or c.gate != -1 or not _touches_snail(c, s, t):
 			continue
 		if s.rider == -1 and c.seat != s.dismounted:
 			s.rider = c.seat
@@ -440,19 +457,101 @@ static func _leave_snail(c: CharacterState, state: MatchState) -> void:
 		s.rider = -1
 
 
+## Gates, after characters have collided and before Berries. First, in Seat
+## order, each living Queen claims every Gate she touches for her Team. Then
+## each transform goes on: as the doors close after gate_hold_ticks the Berry
+## is spent, and after gate_locked_ticks more the Worker emerges upgraded and
+## invulnerable. Then, in Seat order, a living Worker carrying a Berry who
+## stands still on the ground (not on the Snail) touching a Gate that would
+## upgrade it, that its Team can use and that nobody else is in, starts
+## transforming there, snapped to the Gate's centre. Until it emerges it
+## ignores its stick, picks nothing up and is out of the Snail's reach.
+static func _update_gates(state: MatchState) -> void:
+	var t := state.tuning
+	for c in state.characters:
+		if not c.alive or c.role != CharacterState.Role.QUEEN:
+			continue
+		for i in state.gates.size():
+			var g := state.gates[i]
+			if g.team != c.team and _touches_gate(c, g, t):
+				g.team = c.team
+				state.events.append(MatchEvent.of(MatchEvent.Type.GATE_CLAIM, c.seat, i))
+	for c in state.characters:
+		if c.gate == -1:
+			continue
+		c.gate_ticks += 1
+		if c.gate_ticks == t.gate_hold_ticks:
+			state.berries[c.berry].where = BerryState.Where.SPENT
+			c.berry = -1
+		if c.gate_ticks == t.gate_hold_ticks + t.gate_locked_ticks:
+			_emerge(c, state)
+	for c in state.characters:
+		if not c.alive or c.is_winged() or c.berry == -1 or c.gate != -1 or c.vx != 0 or c.airborne_ticks != 0 \
+				or (state.snail != null and (c.seat == state.snail.rider or c.seat == state.snail.victim)):
+			continue
+		for i in state.gates.size():
+			var g := state.gates[i]
+			if _can_use(c, g) and not _gate_in_use(state, i) and _touches_gate(c, g, t):
+				c.gate = i
+				c.gate_ticks = 0
+				c.x = g.x
+				state.events.append(MatchEvent.of(MatchEvent.Type.TRANSFORM_START, c.seat, i))
+				break
+
+
+## Whether Worker `c` could transform at `g`: its Team can use the Gate, and
+## the Gate would change it (a Speed Gate does nothing for a Speed Worker).
+static func _can_use(c: CharacterState, g: GateState) -> bool:
+	return (g.team == -1 or g.team == c.team) and not (g.type == GateState.Type.SPEED and c.speed)
+
+
+static func _gate_in_use(state: MatchState, gate: int) -> bool:
+	for c in state.characters:
+		if c.gate == gate:
+			return true
+	return false
+
+
+## `c` comes out of its Gate upgraded, standing where it went in and
+## invulnerable for gate_invulnerable_ticks.
+static func _emerge(c: CharacterState, state: MatchState) -> void:
+	if state.gates[c.gate].type == GateState.Type.WARRIOR:
+		c.role = CharacterState.Role.WARRIOR
+	else:
+		c.speed = true
+	c.invulnerable_ticks = state.tuning.gate_invulnerable_ticks
+	state.events.append(MatchEvent.of(MatchEvent.Type.TRANSFORM_COMPLETE, c.seat, c.gate))
+	c.gate = -1
+	c.gate_ticks = 0
+
+
+## `c` stops transforming in a Gate, if it was, keeping any Berry it holds.
+static func _leave_gate(c: CharacterState, state: MatchState) -> void:
+	if c.gate == -1:
+		return
+	state.events.append(MatchEvent.of(MatchEvent.Type.TRANSFORM_INTERRUPT, c.seat, c.gate))
+	c.gate = -1
+	c.gate_ticks = 0
+
+
+static func _touches_gate(c: CharacterState, g: GateState, t: Tuning) -> bool:
+	return _boxes_overlap(c.x, c.y, _width(c, t), _height(c, t), g.x, g.y, t.gate_width, t.gate_height)
+
+
 ## Berries, after characters have moved and collided: loose Berries move;
 ## then, in Seat order, each living Worker carrying a Berry deposits it in an
 ## empty hole of its Team's Hive that it touches, or else kicks any loose Berry
 ## it runs into, and each empty-handed Worker picks up the first Berry it
-## touches (which ends its invulnerability). Carried Berries then ride on
-## their Workers' heads. Queens and Warriors pass through Berries.
+## touches (which ends its invulnerability). A Worker in a Gate does neither.
+## Carried Berries then ride on their Workers' heads. Queens and Warriors pass
+## through Berries.
 static func _update_berries(state: MatchState, barriers: bool) -> void:
 	var t := state.tuning
 	for b in state.berries:
 		if b.where == BerryState.Where.LOOSE:
 			_move_berry(b, state, barriers)
 	for c in state.characters:
-		if not c.alive or c.is_winged():
+		if not c.alive or c.is_winged() or c.gate != -1:
 			continue
 		if c.berry == -1:
 			_pick_up(c, state)
@@ -578,8 +677,12 @@ static func _land_on_head(top: CharacterState, under: CharacterState,
 
 ## Bumped characters swap horizontal velocities (repelled according to how
 ## they were moving). If that wouldn't part them, both are pushed apart at
-## bump_speed. Either way neither can steer or turn for bump_ticks.
-static func _bump(a: CharacterState, b: CharacterState, t: Tuning) -> void:
+## bump_speed. Either way neither can steer or turn for bump_ticks, and a
+## Worker holding its Berry up in a Gate is Bumped out of it.
+static func _bump(a: CharacterState, b: CharacterState, state: MatchState) -> void:
+	var t := state.tuning
+	_leave_gate(a, state)
+	_leave_gate(b, state)
 	# Direction from a to b; a is treated as the left one when level.
 	var towards_b := 1 if _wrapped_dx(a.x, b.x) >= 0 else -1
 	var a_vx := b.vx

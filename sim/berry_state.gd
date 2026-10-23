@@ -5,8 +5,9 @@ extends RefCounted
 
 ## In a pile it sits still until a Worker takes it; loose it falls, slides and
 ## can be kicked; carried it rides on the head of the Worker whose
-## CharacterState.berry it is; in a Hive hole it stays for good.
-enum Where { PILE, LOOSE, CARRIED, HIVE }
+## CharacterState.berry it is; in a Hive hole it stays for good; spent at a
+## Gate it is gone.
+enum Where { PILE, LOOSE, CARRIED, HIVE, SPENT }
 
 var where: Where = Where.PILE
 var x: int

@@ -92,15 +92,29 @@ func test_a_copied_state_steps_independently_of_the_original() -> void:
 	assert_int(copy.characters[0].x).is_greater(original.characters[0].x)
 
 
+func test_a_speed_worker_runs_1_35_times_as_fast() -> void:
+	var state := _match(_instant_accel(), true)
+	var t := state.tuning
+	assert_int(t.speed_ratio).is_equal(13500)
+	var start_x := state.characters[0].x
+
+	state = _hold(state, SeatInput.RIGHT, 10)
+
+	assert_int(state.characters[0].x - start_x).is_equal(10 * (t.worker_max_speed * t.speed_ratio / 10000))
+
+
 func _instant_accel() -> Tuning:
 	return Tuning.load_default().with_values(
 		{"worker_run_accel": 1000 * PX, "worker_run_decel": 1000 * PX})
 
 
-func _match(tuning: Tuning) -> MatchState:
+## A Match with one Blue Worker; a Speed Worker with `speed`.
+func _match(tuning: Tuning, speed := false) -> MatchState:
 	var config := MatchConfig.new()
 	config.map = TestMaps.flat_floor(1)
 	config.seat_teams = [CharacterState.BLUE]
+	if speed:
+		config.speed_seats = [0]
 	config.tuning = tuning
 	return Sim.create_match(config)
 

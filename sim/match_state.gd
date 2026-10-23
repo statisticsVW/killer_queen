@@ -25,6 +25,9 @@ var rng: int
 var berries: Array[BerryState]
 ## The Snail, or null on a Map without one.
 var snail: SnailState
+## Every Gate on the Map: its Warrior Gates, then its Speed Gates, each in Map
+## order.
+var gates: Array[GateState]
 
 
 ## Ticks left in the countdown that starts the Match, during which the Map's
@@ -47,6 +50,8 @@ func copy() -> MatchState:
 	s.snail = snail.copy() if snail != null else null
 	for b in berries:
 		s.berries.append(b.copy())
+	for g in gates:
+		s.gates.append(g.copy())
 	s.map = map
 	s.tuning = tuning
 	return s

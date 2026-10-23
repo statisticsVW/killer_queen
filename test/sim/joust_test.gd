@@ -2,8 +2,7 @@ extends GdUnitTestSuite
 ## Jousts between Queens and Warriors, Queen Eggs and the Military Win, driven
 ## only through Sim.create_match and Sim.step.
 ##
-## Blue Seats come first, then Gold. Warriors are made with the dev command on
-## the Match's first tick.
+## Blue Seats come first, then Gold. Warriors start the Match as Warriors.
 
 const PX := 1000
 const FLOOR_Y := 960 * PX
@@ -158,8 +157,8 @@ func test_a_won_match_is_over_and_nothing_more_happens() -> void:
 	assert_array(state.events).is_empty()
 
 
-## A Match on a floor (top at y 960 px), after one tick of neutral input in
-## which the dev command made `warriors` Warriors. Both Teams get waiting Eggs
+## A Match on a floor (top at y 960 px), after one tick of neutral input, with
+## `warriors` starting as Warriors. Both Teams get waiting Eggs
 ## at `eggs_px`.
 func _match(blue_px: Array[Vector2i], gold_px: Array[Vector2i], queens: Array[int],
 		warriors: Array[int], eggs_px: Array[Vector2i] = []) -> MatchState:
@@ -174,17 +173,16 @@ func _match(blue_px: Array[Vector2i], gold_px: Array[Vector2i], queens: Array[in
 	config.queen_seats = queens
 	config.tuning = Tuning.load_default().with_values(
 		{"worker_run_accel": 1000 * PX, "worker_run_decel": 1000 * PX})
-	return _step(Sim.create_match(config), {}, warriors)
+	config.warrior_seats = warriors
+	return _step(Sim.create_match(config), {})
 
 
 ## One tick with `inputs` (Seat -> SeatInput); Seats not in it are neutral.
-func _step(state: MatchState, inputs: Dictionary, dev_warrior_seats: Array[int] = []) -> MatchState:
+func _step(state: MatchState, inputs: Dictionary) -> MatchState:
 	var seats: Array[SeatInput] = []
 	for c in state.characters:
 		seats.append(inputs.get(c.seat, SeatInput.of(SeatInput.NEUTRAL)))
-	var input := TickInput.of(state.tick, seats)
-	input.dev_warrior_seats = dev_warrior_seats
-	return Sim.step(state, input)
+	return Sim.step(state, TickInput.of(state.tick, seats))
 
 
 func _hold(state: MatchState, inputs: Dictionary, ticks: int) -> MatchState:

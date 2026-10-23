@@ -66,6 +66,22 @@ func test_button_presses_while_stuck_have_no_effect() -> void:
 		assert_int(pressed.characters[0].vy).is_equal(untouched.characters[0].vy)
 
 
+func test_the_speed_upgrade_raises_the_ricochet_threshold() -> void:
+	assert_int(Tuning.load_default().ceiling_speed_ricochet_threshold).is_greater(
+		Tuning.load_default().ceiling_ricochet_threshold)
+	# The jump reaches the ceiling rising faster than 1 px/tick but slower than
+	# 1000.
+	var tuning := _tuning().with_values(
+		{"ceiling_ricochet_threshold": 1 * PX, "ceiling_speed_ricochet_threshold": 1000 * PX})
+
+	var worker := _jump_to_ceiling(_match(tuning))
+	var speed_worker := _jump_to_ceiling(_match(tuning, true))
+
+	assert_int(worker.characters[0].vy).is_equal(tuning.ceiling_ricochet_speed)
+	assert_int(speed_worker.characters[0].stuck_ticks).is_equal(tuning.ceiling_stick_ticks)
+	assert_int(speed_worker.characters[0].vy).is_equal(0)
+
+
 func test_running_out_from_under_the_ceiling_drops_off_early() -> void:
 	var state := _match(_tuning().with_values(
 		{"ceiling_ricochet_threshold": 1000 * PX, "ceiling_stick_ticks": 100}))
@@ -98,10 +114,13 @@ func _tuning() -> Tuning:
 		{"worker_run_accel": 1000 * PX, "worker_run_decel": 1000 * PX})
 
 
-func _match(tuning: Tuning) -> MatchState:
+## A Match with one Blue Worker under the ceiling; a Speed Worker with `speed`.
+func _match(tuning: Tuning, speed := false) -> MatchState:
 	var config := MatchConfig.new()
 	config.map = TestMaps.build(LOW_CEILING, [Vector2i(960, 960)])
 	config.seat_teams = [CharacterState.BLUE]
+	if speed:
+		config.speed_seats = [0]
 	config.tuning = tuning
 	return Sim.create_match(config)
 

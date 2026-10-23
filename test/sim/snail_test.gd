@@ -5,8 +5,7 @@ extends GdUnitTestSuite
 ##
 ## Every Map here is a floor (top at y 960 px) with the Snail starting at 960
 ## px, Blue's Snail Goal at 400 px and Gold's at 1520 px. Blue Seats come
-## first, then Gold. Warriors and Speed Workers are made with dev commands on
-## the Match's first tick.
+## first, then Gold. Warriors and Speed Workers start the Match that way.
 
 const PX := 1000
 const FLOOR_Y := 960 * PX
@@ -217,8 +216,8 @@ func _match(blue_px: Array[Vector2i], gold_px: Array[Vector2i], queens: Array[in
 	return _start(MapData.from_config(_config(blue_px, gold_px)), queens, warriors, speed, tuning)
 
 
-## A Match after one tick of neutral input in which dev commands made
-## `warriors` Warriors and `speed` Speed Workers. `tuning` overrides
+## A Match after one tick of neutral input, `warriors` starting as Warriors
+## and `speed` with the Speed upgrade. `tuning` overrides
 ## constants.
 func _start(map: MapData, queens: Array[int], warriors: Array[int], speed: Array[int],
 		tuning: Dictionary) -> MatchState:
@@ -234,11 +233,9 @@ func _start(map: MapData, queens: Array[int], warriors: Array[int], speed: Array
 	var overrides := {"worker_run_accel": 1000 * PX, "worker_run_decel": 1000 * PX}
 	overrides.merge(tuning, true)
 	config.tuning = Tuning.load_default().with_values(overrides)
-	var state := Sim.create_match(config)
-	var input := _tick_input(state, {})
-	input.dev_warrior_seats = warriors
-	input.dev_speed_seats = speed
-	return Sim.step(state, input)
+	config.warrior_seats = warriors
+	config.speed_seats = speed
+	return _step(Sim.create_match(config), {})
 
 
 func _tick_input(state: MatchState, inputs: Dictionary) -> TickInput:

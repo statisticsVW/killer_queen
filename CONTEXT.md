@@ -19,7 +19,7 @@ A non-Queen player who has not passed through a Gate. Workers carry Berries, rid
 _Avoid_: Drone, grunt, bee
 
 **Warrior**:
-A Worker who has transformed at a Warrior Gate held by their Team. Warriors fly and kill with their sword; they cannot carry Berries or ride the Snail. A Warrior who dies respawns as a Worker.
+A Worker who has transformed at a Warrior Gate their Team can use. Warriors fly and kill with their sword; they cannot carry Berries or ride the Snail. A Warrior who dies respawns as a Worker.
 _Avoid_: Soldier, fighter, sword guy
 
 **Speed Worker**:
@@ -89,6 +89,10 @@ _Avoid_: Wings gate, sword gate
 **Speed Gate**:
 A Gate that turns a Worker into a Speed Worker.
 _Avoid_: Lightning gate
+
+**Transform**:
+A Worker spending its Berry at a Gate to upgrade. It stands still at the Gate holding the Berry overhead, when it can be killed or Bumped out; then it is locked in, unseen and untouchable, and the Berry is gone; then it emerges upgraded and Invulnerable.
+_Avoid_: Form, morph, upgrade (the upgrade is what it gets)
 
 **Egg**:
 One of the Queen's remaining lives, shown at her Team's Hive. A Queen's death hatches an Egg; a Queen with no Eggs left dies for good.

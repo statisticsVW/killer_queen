@@ -2,8 +2,8 @@ extends GdUnitTestSuite
 ## Swords killing Workers, the Queen's Dive, death, respawn and spawn
 ## invulnerability, driven only through Sim.create_match and Sim.step.
 ##
-## Blue Seats come first, then Gold. Tests that need a Warrior make it with the
-## dev command on the Match's first tick.
+## Blue Seats come first, then Gold. Tests that need a Warrior start the Match
+## with one.
 
 const PX := 1000
 const FLOOR_Y := 960 * PX
@@ -151,8 +151,8 @@ func _worker_and(worker_px: Vector2i, other_px: Vector2i, role: CharacterState.R
 	return _match(blue, gold, queens, warriors)
 
 
-## A Match on a floor (top at y 960 px), after one tick of neutral input in
-## which the dev command made `warriors` Warriors. `tuning` overrides
+## A Match on a floor (top at y 960 px), after one tick of neutral input, with
+## `warriors` starting as Warriors. `tuning` overrides
 ## constants.
 func _match(blue_px: Array[Vector2i], gold_px: Array[Vector2i], queens: Array[int],
 		warriors: Array[int], tuning := {}) -> MatchState:
@@ -168,17 +168,16 @@ func _match(blue_px: Array[Vector2i], gold_px: Array[Vector2i], queens: Array[in
 	var overrides := {"worker_run_accel": 1000 * PX, "worker_run_decel": 1000 * PX}
 	overrides.merge(tuning, true)
 	config.tuning = Tuning.load_default().with_values(overrides)
-	return _step(Sim.create_match(config), {}, warriors)
+	config.warrior_seats = warriors
+	return _step(Sim.create_match(config), {})
 
 
 ## One tick with `inputs` (Seat -> SeatInput); Seats not in it are neutral.
-func _step(state: MatchState, inputs: Dictionary, dev_warrior_seats: Array[int] = []) -> MatchState:
+func _step(state: MatchState, inputs: Dictionary) -> MatchState:
 	var seats: Array[SeatInput] = []
 	for c in state.characters:
 		seats.append(inputs.get(c.seat, SeatInput.of(SeatInput.NEUTRAL)))
-	var input := TickInput.of(state.tick, seats)
-	input.dev_warrior_seats = dev_warrior_seats
-	return Sim.step(state, input)
+	return Sim.step(state, TickInput.of(state.tick, seats))
 
 
 func _hold(state: MatchState, inputs: Dictionary, ticks: int) -> MatchState:

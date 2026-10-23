@@ -21,7 +21,8 @@ const TEAM_NAMES := ["BLUE", "GOLD"]
 const HIVE_COLOURS := [Color("1d4fa8"), Color("b8601c")]
 const HOLE := Color("102030")
 const EGG := Color("f4e04a")
-const GATE := Color("8a8f98")
+const GATE := Color("c8ccd2")
+const DOORS := Color("6b4a2a")
 const WINGS := Color("f2f2f2")
 const BOLT := Color("ffe14d")
 const BERRY := Color("a63fc4")
@@ -75,10 +76,6 @@ var _paused := false
 var _menu: Menu
 ## Physics ticks since the Match was won.
 var _over_ticks := 0
-## Seats the Warrior dev command has been given for the next tick.
-var _dev_warrior_seats: Array[int] = []
-## Seats the Speed dev command has been given for the next tick.
-var _dev_speed_seats: Array[int] = []
 ## Kill pops still showing: each {at: Vector2 (logical pixels), team: int,
 ## age: int (ticks)}.
 var _pops: Array[Dictionary] = []
@@ -223,20 +220,14 @@ func _read_devices() -> Array[SeatInput]:
 	return inputs
 
 
-## The Match's input for this tick from the devices' inputs, with any dev
-## commands.
+## The Match's input for this tick from the devices' inputs.
 func _tick_input(inputs: Array[SeatInput]) -> TickInput:
 	var seats: Array[SeatInput] = []
 	for seat in SEAT_TEAMS.size():
 		seats.append(SeatInput.of(SeatInput.NEUTRAL))
 	for i in _devices.size():
 		seats[DEVICE_SEATS[i]] = inputs[i]
-	var input := TickInput.of(_current.tick, seats)
-	input.dev_warrior_seats = _dev_warrior_seats
-	_dev_warrior_seats = []
-	input.dev_speed_seats = _dev_speed_seats
-	_dev_speed_seats = []
-	return input
+	return TickInput.of(_current.tick, seats)
 
 
 ## Dev builds save the live Match's Replay when it is won, when the game is
@@ -308,20 +299,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pause()
 
 
-## Dev builds only. Until Gates exist, a digit key makes that Seat's Worker a
-## Warrior, and Shift and a digit gives that Seat the Speed upgrade. F9 plays
-## back the last Match's Replay; F8 starts a new live Match.
+## Dev builds only. F9 plays back the last Match's Replay; F8 starts a new live
+## Match.
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if not OS.is_debug_build() or not key.pressed or key.echo:
 		return
-	if key.physical_keycode >= KEY_0 and key.physical_keycode <= KEY_9:
-		var seat := key.physical_keycode - KEY_0
-		if key.shift_pressed:
-			_dev_speed_seats.append(seat)
-		else:
-			_dev_warrior_seats.append(seat)
-	elif key.physical_keycode == KEY_F9:
+	if key.physical_keycode == KEY_F9:
 		_play_last_replay()
 	elif key.physical_keycode == KEY_F8:
 		_start_live_match()
@@ -407,16 +391,25 @@ func _draw_egg(at: Vector2i) -> void:
 	draw_rect(Rect2(_to_pixels(at) - Vector2(10, 29), Vector2(20, 29)), EGG)
 
 
-## Placeholder Gates and Snail Goals at their Map positions.
+## Placeholder Gates: a doorway framed in its owner's Team colour (grey while
+## neutral), its doors shut while a Worker is locked in, under wings (Warrior
+## Gate) or with a bolt (Speed Gate). Placeholder Snail Goals at their Map
+## positions.
 func _draw_objects(map: MapData) -> void:
-	for gate in map.warrior_gates:
-		var base := _to_pixels(gate)
-		draw_rect(Rect2(base - Vector2(14, 26), Vector2(28, 26)), GATE)
-		draw_rect(Rect2(base - Vector2(24, 34), Vector2(48, 6)), WINGS)
-	for gate in map.speed_gates:
-		var base := _to_pixels(gate)
-		draw_rect(Rect2(base - Vector2(14, 26), Vector2(28, 26)), GATE)
-		draw_rect(Rect2(base - Vector2(3, 24), Vector2(6, 20)), BOLT)
+	var occupied := {}
+	for c in _current.characters:
+		if c.is_locked_in(_current.tuning):
+			occupied[c.gate] = true
+	for i in _current.gates.size():
+		var gate := _current.gates[i]
+		var base := _to_pixels(Vector2i(gate.x, gate.y))
+		var frame: Color = GATE if gate.team == -1 else TEAM_COLOURS[gate.team]
+		draw_rect(Rect2(base - Vector2(14, 26), Vector2(28, 26)), frame)
+		draw_rect(Rect2(base - Vector2(10, 22), Vector2(20, 22)), DOORS if occupied.has(i) else HOLE)
+		if gate.type == GateState.Type.WARRIOR:
+			draw_rect(Rect2(base - Vector2(24, 34), Vector2(48, 6)), WINGS)
+		else:
+			draw_rect(Rect2(base - Vector2(3, 20), Vector2(6, 16)), BOLT)
 	for team in map.snail_goals.size():
 		var goal := _to_pixels(map.snail_goals[team])
 		draw_rect(Rect2(goal - Vector2(26, 30), Vector2(52, 30)), TEAM_COLOURS[team], false, 2)
@@ -430,7 +423,7 @@ func _draw_characters() -> void:
 	var humans := _human_labels() if _current.countdown_ticks() > 0 else {}
 	for i in _current.characters.size():
 		var now := _current.characters[i]
-		if not now.alive or (now.invulnerable_ticks / BLINK_TICKS) % 2 == 1:
+		if not now.alive or now.is_locked_in(t) or (now.invulnerable_ticks / BLINK_TICKS) % 2 == 1:
 			continue
 		var before := _previous.characters[i]
 		# Don't slide across the screen from where a respawned character died.
@@ -516,6 +509,8 @@ func _draw_berries() -> void:
 	var radius := float(_current.tuning.berry_size) / MPX_PER_PIXEL / 2
 	for i in _current.berries.size():
 		var now := _current.berries[i]
+		if now.where == BerryState.Where.SPENT:
+			continue
 		var before := _previous.berries[i]
 		if before.where != now.where and now.where != BerryState.Where.CARRIED:
 			before = now

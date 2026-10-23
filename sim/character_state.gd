@@ -53,10 +53,21 @@ var invulnerable_ticks: int
 var berry: int = -1
 ## Has the Speed upgrade: a Speed Worker, or a Speed Warrior.
 var speed: bool
+## The index in MatchState.gates of the Gate this Worker is transforming in,
+## or -1; and the ticks it has spent in it so far. It holds its Berry up for
+## the first gate_hold_ticks, then is locked in.
+var gate: int = -1
+var gate_ticks: int
 
 
 func is_winged() -> bool:
 	return role != Role.WORKER
+
+
+## Locked in a Gate: past holding its Berry up, unseen and untouchable until it
+## emerges.
+func is_locked_in(t: Tuning) -> bool:
+	return gate != -1 and gate_ticks >= t.gate_hold_ticks
 
 
 func copy() -> CharacterState:
@@ -85,4 +96,6 @@ func copy() -> CharacterState:
 	c.invulnerable_ticks = invulnerable_ticks
 	c.berry = berry
 	c.speed = speed
+	c.gate = gate
+	c.gate_ticks = gate_ticks
 	return c

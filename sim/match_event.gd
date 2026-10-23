@@ -34,6 +34,16 @@ enum Type {
 	## The eat of `other` by the Snail `seat` was riding ended early, `other`
 	## alive or killed by something else.
 	EAT_INTERRUPT,
+	## `seat`, a Queen, claimed Gate `other` (an index in MatchState.gates)
+	## for her Team.
+	GATE_CLAIM,
+	## `seat` started transforming in Gate `other`.
+	TRANSFORM_START,
+	## `seat`'s transform in Gate `other` ended early: it was killed or
+	## Bumped out.
+	TRANSFORM_INTERRUPT,
+	## `seat` emerged from Gate `other`, upgraded.
+	TRANSFORM_COMPLETE,
 }
 
 var type: Type

@@ -5,6 +5,10 @@ extends GdUnitTestSuite
 ## looks random but comes from a fixed sequence, so every run is the same.
 
 const QUEENS: Array[int] = [0, 5]
+## Seats that start as Warriors, and with the Speed upgrade (one of them a
+## Speed Warrior).
+const WARRIORS: Array[int] = [1, 6]
+const SPEED: Array[int] = [2, 6, 7]
 const TICKS := 1500
 
 
@@ -42,6 +46,8 @@ func test_a_replay_keeps_its_own_tuning_and_map() -> void:
 	assert_int(loaded.seed).is_equal(7)
 	assert_array(loaded.seat_teams).is_equal(config.seat_teams)
 	assert_array(loaded.queen_seats).is_equal(config.queen_seats)
+	assert_array(loaded.warrior_seats).is_equal(WARRIORS)
+	assert_array(loaded.speed_seats).is_equal(SPEED)
 	assert_str(Sim.create_match(loaded).fingerprint()).is_equal(Sim.create_match(config).fingerprint())
 
 
@@ -110,6 +116,8 @@ func _config(seed: int) -> MatchConfig:
 	config.map = MapData.load_file("res://data/maps/day.cfg")
 	config.seat_teams = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
 	config.queen_seats = QUEENS
+	config.warrior_seats = WARRIORS
+	config.speed_seats = SPEED
 	config.tuning = Tuning.load_default()
 	config.seed = seed
 	return config
@@ -117,8 +125,7 @@ func _config(seed: int) -> MatchConfig:
 
 ## Every Seat's input for `state`'s tick, from a fixed hash of the tick and
 ## Seat: each Seat holds a stick direction for a while, presses the button in
-## bursts and, for the Queens, sometimes Dives. Every few seconds a Seat's
-## Worker becomes a Warrior, and another Seat gets the Speed upgrade.
+## bursts and, for the Queens, sometimes Dives.
 func _scripted_input(state: MatchState) -> TickInput:
 	var seats: Array[SeatInput] = []
 	for seat in state.characters.size():
@@ -127,12 +134,7 @@ func _scripted_input(state: MatchState) -> TickInput:
 		var button := (state.tick + seat * 3) % (4 + phase % 9) == 0
 		var down := seat in QUEENS and phase % 7 == 0
 		seats.append(SeatInput.of(horizontal, down, button))
-	var input := TickInput.of(state.tick, seats)
-	if state.tick % 150 == 40:
-		input.dev_warrior_seats = [1 + _mix(state.tick) % 4 + 5 * (state.tick / 150 % 2)]
-	if state.tick % 150 == 90:
-		input.dev_speed_seats = [_mix(state.tick + 7) % 10]
-	return input
+	return TickInput.of(state.tick, seats)
 
 
 func _mix(n: int) -> int:

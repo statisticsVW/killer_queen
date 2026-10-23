@@ -25,6 +25,7 @@ var bump_speed: int
 var bump_ticks: int
 var ceiling_stick_ticks: int
 var ceiling_ricochet_threshold: int
+var ceiling_speed_ricochet_threshold: int
 var ceiling_ricochet_speed: int
 var winged_width: int
 var winged_height: int
@@ -53,6 +54,12 @@ var snail_eat_ticks: int
 var snail_speed_rider_eat_ticks: int
 var snail_width: int
 var snail_height: int
+var speed_ratio: int
+var gate_width: int
+var gate_height: int
+var gate_hold_ticks: int
+var gate_locked_ticks: int
+var gate_invulnerable_ticks: int
 
 
 static func load_default() -> Tuning:

@@ -3,8 +3,7 @@ extends GdUnitTestSuite
 ## kicking loose Berries and the Economic Win, driven only through
 ## Sim.create_match and Sim.step.
 ##
-## Blue Seats come first, then Gold. Warriors are made with the dev command on
-## the Match's first tick. Berry piles hold six Berries.
+## Blue Seats come first, then Gold. Warriors start the Match as Warriors. Berry piles hold six Berries.
 
 const PX := 1000
 const FLOOR_Y := 960 * PX
@@ -36,17 +35,6 @@ func test_queens_and_warriors_cannot_pick_up_berries() -> void:
 	assert_int(state.characters[0].berry).is_equal(-1)
 	assert_int(state.characters[1].berry).is_equal(-1)
 	assert_int(_count(state, BerryState.Where.PILE)).is_equal(6)
-
-
-func test_a_worker_made_a_warrior_drops_its_berry() -> void:
-	var state := _match(_map([Vector2i(900, 960)], [Vector2i(960, 960)]), [], [])
-	state = _hold(state, {0: SeatInput.of(SeatInput.RIGHT)}, 10)
-	assert_int(state.characters[0].berry).is_not_equal(-1)
-
-	state = _step(state, {}, [0])
-
-	assert_int(state.characters[0].berry).is_equal(-1)
-	assert_int(_count(state, BerryState.Where.LOOSE)).is_equal(1)
 
 
 func test_depositing_fills_an_empty_hole_in_the_workers_own_hive_only() -> void:
@@ -215,8 +203,7 @@ func _map(blue_px: Array[Vector2i], piles_px: Array[Vector2i]) -> MapData:
 	return MapData.from_config(_map_config(blue_px, piles_px))
 
 
-## A Match after one tick of neutral input in which the dev command made
-## `warriors` Warriors. Blue's Seats come first, then Gold's.
+## A Match after one tick of neutral input, `warriors` starting as Warriors. Blue's Seats come first, then Gold's.
 func _match(map: MapData, queens: Array[int], warriors: Array[int]) -> MatchState:
 	var config := MatchConfig.new()
 	config.map = map
@@ -229,17 +216,16 @@ func _match(map: MapData, queens: Array[int], warriors: Array[int]) -> MatchStat
 	config.queen_seats = queens
 	config.tuning = Tuning.load_default().with_values(
 		{"worker_run_accel": 1000 * PX, "worker_run_decel": 1000 * PX, "berry_kick_speed": 20 * PX})
-	return _step(Sim.create_match(config), {}, warriors)
+	config.warrior_seats = warriors
+	return _step(Sim.create_match(config), {})
 
 
 ## One tick with `inputs` (Seat -> SeatInput); Seats not in it are neutral.
-func _step(state: MatchState, inputs: Dictionary, dev_warrior_seats: Array[int] = []) -> MatchState:
+func _step(state: MatchState, inputs: Dictionary) -> MatchState:
 	var seats: Array[SeatInput] = []
 	for c in state.characters:
 		seats.append(inputs.get(c.seat, SeatInput.of(SeatInput.NEUTRAL)))
-	var input := TickInput.of(state.tick, seats)
-	input.dev_warrior_seats = dev_warrior_seats
-	return Sim.step(state, input)
+	return Sim.step(state, TickInput.of(state.tick, seats))
 
 
 func _hold(state: MatchState, inputs: Dictionary, ticks: int) -> MatchState:

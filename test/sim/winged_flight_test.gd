@@ -4,7 +4,7 @@ extends GdUnitTestSuite
 ##
 ## Most tests run three Blue Seats side by side, teammates passing through each
 ## other, and give all three the same input: Seat 0 is the Queen, Seat 1 a
-## Worker made a Warrior by the dev command, Seat 2 a Worker.
+## Warrior from the start, Seat 2 a Worker.
 
 const PX := 1000
 const FLOOR_Y := 960 * PX
@@ -31,14 +31,51 @@ func test_the_queen_seat_plays_a_queen_from_her_teams_first_spawn_point() -> voi
 	assert_int(c[1].x).is_equal(900 * PX)
 
 
-func test_the_dev_command_makes_a_worker_a_warrior_and_leaves_a_queen_alone() -> void:
-	var state := _match(Vector2i(960, 960))
+func test_warrior_seats_start_as_warriors_and_a_queen_seat_stays_a_queen() -> void:
+	var config := MatchConfig.new()
+	config.map = TestMaps.build(TestMaps.floor_tiles(),
+		[Vector2i(300, 960), Vector2i(600, 960), Vector2i(900, 960)])
+	config.seat_teams = [CharacterState.BLUE, CharacterState.BLUE, CharacterState.BLUE]
+	config.queen_seats = [QUEEN]
+	config.warrior_seats = [QUEEN, WARRIOR]
+	config.tuning = Tuning.load_default()
 
-	state = _step(state, SeatInput.NEUTRAL, false, false, [QUEEN, WORKER])
+	var state := Sim.create_match(config)
 
 	assert_int(state.characters[QUEEN].role).is_equal(CharacterState.Role.QUEEN)
 	assert_int(state.characters[WARRIOR].role).is_equal(CharacterState.Role.WARRIOR)
-	assert_int(state.characters[WORKER].role).is_equal(CharacterState.Role.WARRIOR)
+	assert_int(state.characters[WORKER].role).is_equal(CharacterState.Role.WORKER)
+
+
+func test_a_speed_warrior_flies_and_rises_1_35_times_as_fast() -> void:
+	var state := _match_on(TestMaps.build(TestMaps.floor_tiles(), [Vector2i(960, 540), Vector2i(960, 540)]),
+		[WARRIOR])
+	var t := state.tuning
+	var fastest_rise := [0, 0]
+
+	# Flapping every other tick, holding right.
+	for i in 30:
+		state = _step(state, SeatInput.RIGHT, false, i % 2 == 0)
+		for seat in [QUEEN, WARRIOR]:
+			fastest_rise[seat] = maxi(fastest_rise[seat], -state.characters[seat].vy)
+
+	assert_int(state.characters[QUEEN].vx).is_equal(t.worker_max_speed)
+	assert_int(state.characters[WARRIOR].vx).is_equal(t.worker_max_speed * t.speed_ratio / 10000)
+	assert_int(fastest_rise[QUEEN]).is_equal(t.winged_max_rise_speed)
+	assert_int(fastest_rise[WARRIOR]).is_equal(t.winged_max_rise_speed * t.speed_ratio / 10000)
+
+
+func test_a_speed_warrior_walks_1_35_times_as_fast_as_a_warrior() -> void:
+	var state := _match_on(TestMaps.build(TestMaps.floor_tiles(), [Vector2i(960, 960), Vector2i(960, 960)]),
+		[WARRIOR])
+	var t := state.tuning
+
+	state = _step(state, SeatInput.RIGHT, false, false)
+
+	var walk := t.worker_max_speed * t.winged_walk_speed_ratio / 10000
+	assert_int(state.characters[QUEEN].vx).is_equal(walk)
+	assert_int(state.characters[WARRIOR].vx).is_equal(
+		t.worker_max_speed * t.speed_ratio / 10000 * t.winged_walk_speed_ratio / 10000)
 
 
 func test_one_flap_gives_one_upward_impulse() -> void:
@@ -197,30 +234,32 @@ func test_a_winged_character_is_blocked_at_a_workers_only_wrap_edge() -> void:
 
 
 ## A Match of three Blue Seats spawned at `at_px` on a floor (top at y 960 px),
-## after one tick in which the dev command made Seat 1 a Warrior.
+## Seat 1 a Warrior, after one tick of neutral input.
 func _match(at_px: Vector2i) -> MatchState:
 	return _match_on(TestMaps.build(TestMaps.floor_tiles(), [at_px, at_px, at_px]))
 
 
-func _match_on(map: MapData) -> MatchState:
+## A Match of Blue Seats on `map`, Seat 0 the Queen and Seat 1 a Warrior, with
+## the Speed upgrade for `speed`, after one tick of neutral input.
+func _match_on(map: MapData, speed: Array[int] = []) -> MatchState:
 	var config := MatchConfig.new()
 	config.map = map
-	config.seat_teams = [CharacterState.BLUE, CharacterState.BLUE, CharacterState.BLUE]
+	for i in map.spawns[CharacterState.BLUE].size():
+		config.seat_teams.append(CharacterState.BLUE)
 	config.queen_seats = [QUEEN]
+	config.warrior_seats = [WARRIOR]
+	config.speed_seats = speed
 	config.tuning = Tuning.load_default().with_values(
 		{"worker_run_accel": 1000 * PX, "worker_run_decel": 1000 * PX})
-	return _step(Sim.create_match(config), SeatInput.NEUTRAL, false, false, [WARRIOR])
+	return _step(Sim.create_match(config), SeatInput.NEUTRAL, false, false)
 
 
 ## Every Seat gets the same input.
-func _step(state: MatchState, horizontal: int, down: bool, button: bool,
-		dev_warrior_seats: Array[int] = []) -> MatchState:
+func _step(state: MatchState, horizontal: int, down: bool, button: bool) -> MatchState:
 	var seats: Array[SeatInput] = []
 	for c in state.characters:
 		seats.append(SeatInput.of(horizontal, down, button))
-	var input := TickInput.of(state.tick, seats)
-	input.dev_warrior_seats = dev_warrior_seats
-	return Sim.step(state, input)
+	return Sim.step(state, TickInput.of(state.tick, seats))
 
 
 func _hold(state: MatchState, horizontal: int, down: bool, button: bool, ticks: int) -> MatchState:
