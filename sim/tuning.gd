@@ -58,11 +58,25 @@ static func from_config(cfg: ConfigFile) -> Tuning:
 	for section in cfg.get_sections():
 		for key in cfg.get_section_keys(section):
 			values["%s_%s" % [section, key]] = cfg.get_value(section, key)
+	return from_values(values)
+
+
+## A Tuning from every constant's value, by property name (as values()
+## gives them).
+static func from_values(values: Dictionary) -> Tuning:
 	var tuning := Tuning.new()
 	tuning._apply(values)
 	var missing := tuning.names().filter(func(n: String) -> bool: return not values.has(n))
-	assert(missing.is_empty(), "Tuning file is missing: %s" % ", ".join(missing))
+	assert(missing.is_empty(), "Tuning is missing: %s" % ", ".join(missing))
 	return tuning
+
+
+## Every constant's value, by property name.
+func values() -> Dictionary:
+	var result := {}
+	for n in names():
+		result[n] = get(n)
+	return result
 
 
 ## Names of every constant, in declaration order.

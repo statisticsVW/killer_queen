@@ -19,6 +19,8 @@ var eggs: Array[int]
 var win: Win = Win.NONE
 ## The Team that won, or -1.
 var winner: int = -1
+## The random generator's state (see Rng).
+var rng: int
 
 
 func copy() -> MatchState:
@@ -30,6 +32,27 @@ func copy() -> MatchState:
 	s.eggs = eggs.duplicate()
 	s.win = win
 	s.winner = winner
+	s.rng = rng
 	s.map = map
 	s.tuning = tuning
 	return s
+
+
+## A digest of every value in the state, characters and events included, but
+## not the shared Map and Tuning. States that differ anywhere have different
+## fingerprints, so comparing them tests determinism. It reads the properties
+## themselves, so a new field is covered without changing this.
+func fingerprint() -> String:
+	return var_to_str(_values(self)).sha256_text()
+
+
+static func _values(value: Variant) -> Variant:
+	if value is Array:
+		return value.map(_values)
+	if not value is Object:
+		return value
+	var result := []
+	for prop in value.get_property_list():
+		if prop.usage & PROPERTY_USAGE_SCRIPT_VARIABLE and not prop.name in ["map", "tuning"]:
+			result.append([prop.name, _values(value.get(prop.name))])
+	return result

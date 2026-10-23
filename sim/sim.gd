@@ -32,6 +32,7 @@ static func create_match(config: MatchConfig) -> MatchState:
 		c.y = c.spawn.y
 		state.characters.append(c)
 	state.eggs.assign([config.map.eggs[0].size(), config.map.eggs[1].size()])
+	state.rng = Rng.start(config.seed)
 	return state
 
 

@@ -14,6 +14,8 @@ const _EDGE_CHARS := {"|": Edge.BLOCKED, "~": Edge.WRAP, "w": Edge.WRAP_WORKERS_
 const _PX := 1000
 
 var name: String
+## The map file this Map was built from, as text, so a Replay can carry it.
+var source: String
 ## Side length of one collision tile.
 var tile_size: int
 var columns: int
@@ -51,6 +53,7 @@ static func load_file(path: String) -> MapData:
 static func from_config(cfg: ConfigFile) -> MapData:
 	var map := MapData.new()
 	map.name = cfg.get_value("map", "name", "")
+	map.source = cfg.encode_to_text()
 	map.tile_size = cfg.get_value("map", "tile_size") * _PX
 	assert(WIDTH % map.tile_size == 0 and HEIGHT % map.tile_size == 0,
 		"tile_size must divide 1920 and 1080")

@@ -4,6 +4,8 @@ extends Node2D
 ## two states. Rendering only: no game rules live here.
 
 const MAP_PATH := "res://data/maps/day.cfg"
+## Where dev builds keep the last Match's Replay, under res:// or user://.
+const REPLAY_FILE := "replays/last.replay"
 
 ## Sim milli-pixels per logical (960x540) pixel.
 const MPX_PER_PIXEL := 2000
@@ -51,21 +53,58 @@ var _dev_warrior_seats: Array[int] = []
 ## Kill pops still showing: each {at: Vector2 (logical pixels), team: int,
 ## age: int (ticks)}.
 var _pops: Array[Dictionary] = []
+## The live Match's Replay so far, or null while a Replay plays back.
+var _recording: Replay
+## Whether the live Match's Replay has been saved since its last tick.
+var _saved := false
+## The Replay playing back, or null during a live Match.
+var _playback: Replay
 
 
 func _ready() -> void:
 	for device in DEVICE_SEATS.size() - _devices.size():
 		_devices.append(Pad.of(device))
+	_start_live_match()
+
+
+func _start_live_match() -> void:
 	var config := MatchConfig.new()
 	config.map = MapData.load_file(MAP_PATH)
 	config.seat_teams = SEAT_TEAMS
 	config.queen_seats = QUEEN_SEATS
 	config.tuning = Tuning.load_default()
+	config.seed = randi()
+	_recording = Replay.record(config)
+	_saved = false
+	_playback = null
+	_start(config)
+
+
+func _start(config: MatchConfig) -> void:
 	_current = Sim.create_match(config)
 	_previous = _current
+	_pops = []
 
 
 func _physics_process(_delta: float) -> void:
+	var input: TickInput
+	if _playback != null:
+		if _current.tick >= _playback.length():
+			_previous = _current
+			return
+		input = _playback.input(_current.tick)
+	else:
+		input = _read_devices()
+		_recording.add(input)
+		_saved = false
+	_previous = _current
+	_current = Sim.step(_current, input)
+	_update_pops()
+	if _playback == null and _current.win != MatchState.Win.NONE:
+		_save_replay()
+
+
+func _read_devices() -> TickInput:
 	var seats: Array[SeatInput] = []
 	for seat in SEAT_TEAMS.size():
 		seats.append(SeatInput.of(SeatInput.NEUTRAL))
@@ -74,9 +113,43 @@ func _physics_process(_delta: float) -> void:
 	var input := TickInput.of(_current.tick, seats)
 	input.dev_warrior_seats = _dev_warrior_seats
 	_dev_warrior_seats = []
-	_previous = _current
-	_current = Sim.step(_current, input)
-	_update_pops()
+	return input
+
+
+## Dev builds save the live Match's Replay when it is won, when the game is
+## closed and before playing a Replay back. It goes in the project's replays/
+## folder (kept out of git) when running from the project, else user://.
+func _save_replay() -> void:
+	if not OS.is_debug_build() or _recording == null or _saved:
+		return
+	var path := _replay_path()
+	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		push_warning("Could not save the Replay to %s" % path)
+		return
+	file.store_string(_recording.to_text())
+	_saved = true
+
+
+## Dev builds: plays the last saved Replay back from its first tick.
+func _play_last_replay() -> void:
+	_save_replay()
+	var path := _replay_path()
+	if not FileAccess.file_exists(path):
+		return
+	_playback = Replay.from_text(FileAccess.get_file_as_string(path))
+	_recording = null
+	_start(_playback.config())
+
+
+func _replay_path() -> String:
+	return ("res://" if OS.has_feature("editor") else "user://") + REPLAY_FILE
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_save_replay()
 
 
 ## Ages the kill pops and starts one where each character died this tick.
@@ -93,14 +166,19 @@ func _update_pops() -> void:
 		_pops.append({"at": _to_pixels(Vector2i(c.x, c.y - height / 2)), "team": c.team, "age": 0})
 
 
-## Dev builds only, until Gates exist: a digit key makes that Seat's Worker a
-## Warrior.
+## Dev builds only. Until Gates exist, a digit key makes that Seat's Worker a
+## Warrior. F9 plays back the last Match's Replay; F8 starts a new live Match.
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if not OS.is_debug_build() or not key.pressed or key.echo:
 		return
 	if key.physical_keycode >= KEY_0 and key.physical_keycode <= KEY_9:
 		_dev_warrior_seats.append(key.physical_keycode - KEY_0)
+	elif key.physical_keycode == KEY_F9:
+		_play_last_replay()
+	elif key.physical_keycode == KEY_F8:
+		_save_replay()
+		_start_live_match()
 
 
 func _process(_delta: float) -> void:
@@ -116,6 +194,7 @@ func _draw() -> void:
 	_draw_characters()
 	_draw_pops()
 	_draw_win()
+	_draw_playback()
 
 
 func _draw_tiles(map: MapData) -> void:
@@ -246,6 +325,16 @@ func _draw_win() -> void:
 	var at := Vector2((SCREEN_WIDTH - width) / 2.0, 270)
 	draw_rect(Rect2(0, at.y - size, SCREEN_WIDTH, size * 1.5), Color(0, 0, 0, 0.6))
 	draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, TEAM_COLOURS[_current.winner])
+
+
+## While a Replay plays back: which tick of how many, at the top left.
+func _draw_playback() -> void:
+	if _playback == null:
+		return
+	var text := "REPLAY %d / %d" % [_current.tick, _playback.length()]
+	if _current.tick >= _playback.length():
+		text += "  (over: F9 again, F8 live)"
+	draw_string(ThemeDB.fallback_font, Vector2(8, 22), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
 
 
 func _to_pixels(mpx: Vector2i) -> Vector2:

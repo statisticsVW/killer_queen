@@ -9,3 +9,6 @@ var seat_teams: Array[int]
 ## Seat starts as a Worker.
 var queen_seats: Array[int]
 var tuning: Tuning
+## Seeds the Match's random generator, the only source of randomness in the
+## sim (ADR-0002).
+var seed: int
