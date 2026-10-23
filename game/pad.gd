@@ -10,12 +10,19 @@ const FACE_BUTTONS: Array[JoyButton] = [JOY_BUTTON_A, JOY_BUTTON_B, JOY_BUTTON_X
 
 ## Godot's joypad device id. Ids are handed out in connection order.
 var device: int
+## Shown over this player's character at the start of a Match.
+var label: String
 
 
 static func of(p_device: int) -> Pad:
 	var pad := Pad.new()
 	pad.device = p_device
+	pad.label = "PAD %d" % (p_device + 1)
 	return pad
+
+
+func connected() -> bool:
+	return device in Input.get_connected_joypads()
 
 
 func read() -> SeatInput:

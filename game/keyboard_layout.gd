@@ -3,6 +3,8 @@ extends RefCounted
 ## One player's keys, read as a Seat's joystick and button. There is no Up key:
 ## the cabinet's sticks don't give Workers one.
 
+## Shown over this player's character at the start of a Match.
+var label: String
 var left: Key
 var right: Key
 var down: Key
@@ -10,20 +12,26 @@ var button: Key
 
 
 static func wasd() -> KeyboardLayout:
-	return _of(KEY_A, KEY_D, KEY_S, KEY_SPACE)
+	return _of("WASD", KEY_A, KEY_D, KEY_S, KEY_SPACE)
 
 
 static func arrows() -> KeyboardLayout:
-	return _of(KEY_LEFT, KEY_RIGHT, KEY_DOWN, KEY_ENTER)
+	return _of("ARROWS", KEY_LEFT, KEY_RIGHT, KEY_DOWN, KEY_ENTER)
 
 
-static func _of(p_left: Key, p_right: Key, p_down: Key, p_button: Key) -> KeyboardLayout:
+static func _of(p_label: String, p_left: Key, p_right: Key, p_down: Key, p_button: Key) -> KeyboardLayout:
 	var layout := KeyboardLayout.new()
+	layout.label = p_label
 	layout.left = p_left
 	layout.right = p_right
 	layout.down = p_down
 	layout.button = p_button
 	return layout
+
+
+## A keyboard is always there to play.
+func connected() -> bool:
+	return true
 
 
 func read() -> SeatInput:

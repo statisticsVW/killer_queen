@@ -6,7 +6,7 @@ extends RefCounted
 ## only human Seats' input needs keeping, and the Bot Difficulties join the
 ## config.
 
-const _VERSION := 2
+const _VERSION := 3
 
 var _map_source: String
 var _seat_teams: Array[int]

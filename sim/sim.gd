@@ -51,8 +51,10 @@ static func create_match(config: MatchConfig) -> MatchState:
 
 
 ## Returns the state one tick after `state`. `input` must be tagged with
-## state.tick, the tick it applies to. Once a Team has won, the Match is over:
-## stepping it changes nothing but the tick.
+## state.tick, the tick it applies to. During the countdown that starts the
+## Match (MatchState.countdown_ticks), the Map's starting barriers are solid.
+## Once a Team has won, the Match is over: stepping it changes nothing but the
+## tick.
 static func step(state: MatchState, input: TickInput) -> MatchState:
 	assert(input.tick == state.tick, "Input for tick %d applied at tick %d" % [input.tick, state.tick])
 	var next := state.copy()
@@ -60,6 +62,8 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 	next.events = []
 	if next.win != MatchState.Win.NONE:
 		return next
+	# The starting barriers stand for inputs tagged within the countdown.
+	var barriers := state.countdown_ticks() > 0
 	for seat in input.dev_warrior_seats:
 		var warrior := next.characters[seat]
 		if warrior.alive and warrior.role == CharacterState.Role.WORKER:
@@ -99,18 +103,18 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 			_fall(c, seat_input, next.tuning)
 		c.stuck_ticks = maxi(c.stuck_ticks - 1, 0)
 		var rising_speed := -c.vy
-		var contact := _move_character(c, next.map, next.tuning)
+		var contact := _move_character(c, next.map, next.tuning, barriers)
 		c.airborne_ticks = 0 if contact == Contact.FLOOR else c.airborne_ticks + 1
 		if contact == Contact.CEILING:
 			_hit_ceiling(c, rising_speed, next.tuning)
-		elif c.stuck_ticks > 0 and not _under_ceiling(c, next.map, next.tuning):
+		elif c.stuck_ticks > 0 and not _under_ceiling(c, next.map, next.tuning, barriers):
 			c.stuck_ticks = 0
 		c.on_head = false
 	_update_snail(next)
 	if next.win == MatchState.Win.NONE:
 		_collide_characters(state, next)
 	if next.win == MatchState.Win.NONE:
-		_update_berries(next)
+		_update_berries(next, barriers)
 	return next
 
 
@@ -208,11 +212,11 @@ static func _ricochet_threshold(_c: CharacterState, t: Tuning) -> int:
 
 
 ## Whether solid tile is directly above the top of `c`'s collider.
-static func _under_ceiling(c: CharacterState, map: MapData, t: Tuning) -> bool:
+static func _under_ceiling(c: CharacterState, map: MapData, t: Tuning, barriers: bool) -> bool:
 	var half_width := _width(c, t) / 2
 	var row := map.tile_of(c.y - _height(c, t) - 1)
 	return _row_blocked(map, row, map.tile_of(c.x - half_width), map.tile_of(c.x + half_width - 1),
-		c.is_winged())
+		c.is_winged(), barriers)
 
 
 ## Resolves contact between living enemies after everyone has moved, in Seat
@@ -442,11 +446,11 @@ static func _leave_snail(c: CharacterState, state: MatchState) -> void:
 ## it runs into, and each empty-handed Worker picks up the first Berry it
 ## touches (which ends its invulnerability). Carried Berries then ride on
 ## their Workers' heads. Queens and Warriors pass through Berries.
-static func _update_berries(state: MatchState) -> void:
+static func _update_berries(state: MatchState, barriers: bool) -> void:
 	var t := state.tuning
 	for b in state.berries:
 		if b.where == BerryState.Where.LOOSE:
-			_move_berry(b, state)
+			_move_berry(b, state, barriers)
 	for c in state.characters:
 		if not c.alive or c.is_winged():
 			continue
@@ -463,10 +467,10 @@ static func _update_berries(state: MatchState) -> void:
 
 
 ## Gravity, then movement against terrain, then friction while on the ground.
-static func _move_berry(b: BerryState, state: MatchState) -> void:
+static func _move_berry(b: BerryState, state: MatchState, barriers: bool) -> void:
 	var t := state.tuning
 	b.vy = mini(b.vy + t.berry_gravity, maxi(b.vy, t.berry_max_fall_speed))
-	if _move(b, t.berry_size / 2, t.berry_size, false, state.map) == Contact.FLOOR:
+	if _move(b, t.berry_size / 2, t.berry_size, false, state.map, barriers) == Contact.FLOOR:
 		b.vx = _approach(b.vx, 0, t.berry_friction)
 
 
@@ -623,17 +627,18 @@ static func _wrapped_dx(from: int, to: int) -> int:
 	return dx
 
 
-static func _move_character(c: CharacterState, map: MapData, t: Tuning) -> Contact:
-	return _move(c, _width(c, t) / 2, _height(c, t), c.is_winged(), map)
+static func _move_character(c: CharacterState, map: MapData, t: Tuning, barriers: bool) -> Contact:
+	return _move(c, _width(c, t) / 2, _height(c, t), c.is_winged(), map, barriers)
 
 
 ## Moves `c` (a character or a Berry: anything with x, y, vx and vy) with a
 ## collider of the given size by its velocity, horizontally then vertically,
 ## stopping it flush against the first solid tile in its way and zeroing that
 ## velocity. Crossing a wrapping side edge brings it in on the other side;
-## `winged` bodies are blocked at Workers-only wraps. Returns which surface, if
-## any, stopped its vertical movement.
-static func _move(c, half_width: int, height: int, winged: bool, map: MapData) -> Contact:
+## `winged` bodies are blocked at Workers-only wraps, and starting barriers
+## block everything while `barriers` stand. Returns which surface, if any,
+## stopped its vertical movement.
+static func _move(c, half_width: int, height: int, winged: bool, map: MapData, barriers: bool) -> Contact:
 	var size := map.tile_size
 
 	var first_row := map.tile_of(c.y - height)
@@ -642,14 +647,14 @@ static func _move(c, half_width: int, height: int, winged: bool, map: MapData) -
 	if c.vx > 0:
 		var right: int = c.x + half_width
 		for column in range(map.tile_of(right), map.tile_of(right + c.vx - 1) + 1):
-			if _column_blocked(map, column, first_row, last_row, winged):
+			if _column_blocked(map, column, first_row, last_row, winged, barriers):
 				dx = column * size - right
 				c.vx = 0
 				break
 	elif c.vx < 0:
 		var left: int = c.x - half_width
 		for column in range(map.tile_of(left - 1), map.tile_of(left + c.vx) - 1, -1):
-			if _column_blocked(map, column, first_row, last_row, winged):
+			if _column_blocked(map, column, first_row, last_row, winged, barriers):
 				dx = (column + 1) * size - left
 				c.vx = 0
 				break
@@ -661,7 +666,7 @@ static func _move(c, half_width: int, height: int, winged: bool, map: MapData) -
 	var contact := Contact.NONE
 	if c.vy > 0:
 		for row in range(map.tile_of(c.y), map.tile_of(c.y + c.vy - 1) + 1):
-			if _row_blocked(map, row, first_column, last_column, winged):
+			if _row_blocked(map, row, first_column, last_column, winged, barriers):
 				dy = row * size - c.y
 				c.vy = 0
 				contact = Contact.FLOOR
@@ -669,7 +674,7 @@ static func _move(c, half_width: int, height: int, winged: bool, map: MapData) -
 	elif c.vy < 0:
 		var top: int = c.y - height
 		for row in range(map.tile_of(top - 1), map.tile_of(top + c.vy) - 1, -1):
-			if _row_blocked(map, row, first_column, last_column, winged):
+			if _row_blocked(map, row, first_column, last_column, winged, barriers):
 				dy = (row + 1) * size - top
 				c.vy = 0
 				contact = Contact.CEILING
@@ -679,17 +684,17 @@ static func _move(c, half_width: int, height: int, winged: bool, map: MapData) -
 
 
 static func _column_blocked(map: MapData, column: int, first_row: int, last_row: int,
-		winged: bool) -> bool:
+		winged: bool, barriers: bool) -> bool:
 	for row in range(first_row, last_row + 1):
-		if map.is_solid(column, row, winged):
+		if map.is_solid(column, row, winged, barriers):
 			return true
 	return false
 
 
 static func _row_blocked(map: MapData, row: int, first_column: int, last_column: int,
-		winged: bool) -> bool:
+		winged: bool, barriers: bool) -> bool:
 	for column in range(first_column, last_column + 1):
-		if map.is_solid(column, row, winged):
+		if map.is_solid(column, row, winged, barriers):
 			return true
 	return false
 

@@ -41,6 +41,11 @@ var has_snail: bool
 var snail_start: Vector2i
 ## Each Team's Snail Goal on the Snail track, indexed by Team.
 var snail_goals: Array[Vector2i]
+## The starting barriers, solid only during a Match's countdown: rectangles
+## of whole tiles (position is the top-left corner).
+var barriers: Array[Rect2i]
+## Row-major, one byte per tile: 1 if a starting barrier covers it.
+var _barrier_tiles: PackedByteArray
 
 
 static func load_file(path: String) -> MapData:
@@ -75,20 +80,23 @@ static func from_config(cfg: ConfigFile) -> MapData:
 		cfg.get_value("snail", "blue_goal", Vector2i.ZERO) * _PX,
 		cfg.get_value("snail", "gold_goal", Vector2i.ZERO) * _PX,
 	])
+	map._parse_barriers(cfg.get_value("barriers", "rects", []))
 	return map
 
 
 ## Whether tile (column, row) is solid. Above and below the Map is solid; past
 ## a side edge is solid on a BLOCKED row and the other side's tile on a
 ## wrapping row. A WRAP_WORKERS_ONLY row is blocked for `winged` characters.
-func is_solid(column: int, row: int, winged := false) -> bool:
+## Starting barriers are solid only while `barriers` stand.
+func is_solid(column: int, row: int, winged := false, barriers := false) -> bool:
 	if row < 0 or row >= rows:
 		return true
 	if column < 0 or column >= columns:
 		if edges[row] == Edge.BLOCKED or (winged and edges[row] == Edge.WRAP_WORKERS_ONLY):
 			return true
 		column = posmod(column, columns)
-	return solid[row * columns + column] == 1
+	var i := row * columns + column
+	return solid[i] == 1 or (barriers and _barrier_tiles[i] == 1)
 
 
 ## The tile index containing coordinate `v`, rounding toward negative infinity.
@@ -110,6 +118,19 @@ func _parse_tiles(lines: Array) -> void:
 			var tile := line[column + 1]
 			assert(tile == "#" or tile == ".", "Unknown tile '%s' in row %d" % [tile, row])
 			solid[row * columns + column] = 1 if tile == "#" else 0
+
+
+func _parse_barriers(rects: Array) -> void:
+	_barrier_tiles.resize(rows * columns)
+	for r in rects:
+		var rect := Rect2i(r.position * _PX, r.size * _PX)
+		assert(rect.position.x % tile_size == 0 and rect.position.y % tile_size == 0
+			and rect.size.x % tile_size == 0 and rect.size.y % tile_size == 0,
+			"Barrier %s must cover whole tiles" % r)
+		barriers.append(rect)
+		for row in range(rect.position.y / tile_size, rect.end.y / tile_size):
+			for column in range(rect.position.x / tile_size, rect.end.x / tile_size):
+				_barrier_tiles[row * columns + column] = 1
 
 
 static func _points(cfg: ConfigFile, section: String, key: String) -> Array[Vector2i]:

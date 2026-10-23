@@ -43,11 +43,38 @@ const QUEEN_SEATS: Array[int] = [0, 5]
 ## stand idle.
 const DEVICE_SEATS: Array[int] = [0, 5, 1, 6, 2, 7, 3, 8, 4, 9]
 
+## How long the victory screen shows before its menu takes input, in physics
+## ticks, so a button mashed as the Match ends doesn't choose for anyone.
+const VICTORY_MENU_DELAY := 50
+## How long "GO!" shows once the countdown ends, in physics ticks.
+const GO_TICKS := 50
+const ROPE := Color("8d6710")
+const ROPE_LIGHT := Color("c79f2d")
+
+## Menu options.
+const RESUME := "RESUME"
+const REMATCH := "REMATCH"
+const LOBBY := "LOBBY"
+const FULLSCREEN := "FULLSCREEN"
+const WINDOWED := "WINDOWED"
+const START := "START MATCH"
+
+## The Lobby is a placeholder until ticket 18.
+enum Screen { LOBBY, MATCH }
+
 ## Every device that can drive a Seat, in a fixed order: the two keyboard
-## layouts, then pads by Godot device id. Each has read() -> SeatInput.
+## layouts, then pads by Godot device id. Each has read() -> SeatInput,
+## connected() -> bool and a label.
 var _devices: Array = [KeyboardLayout.wasd(), KeyboardLayout.arrows()]
+var _screen := Screen.MATCH
 var _previous: MatchState
 var _current: MatchState
+## Whether the Match is paused: the sim doesn't step.
+var _paused := false
+## The Lobby's, pause or victory menu, or null.
+var _menu: Menu
+## Physics ticks since the Match was won.
+var _over_ticks := 0
 ## Seats the Warrior dev command has been given for the next tick.
 var _dev_warrior_seats: Array[int] = []
 ## Seats the Speed dev command has been given for the next tick.
@@ -69,7 +96,9 @@ func _ready() -> void:
 	_start_live_match()
 
 
+## Starts a new live Match with the same Seats (a rematch).
 func _start_live_match() -> void:
+	_save_replay()
 	var config := MatchConfig.new()
 	config.map = MapData.load_file(MAP_PATH)
 	config.seat_teams = SEAT_TEAMS
@@ -83,35 +112,125 @@ func _start_live_match() -> void:
 
 
 func _start(config: MatchConfig) -> void:
+	_screen = Screen.MATCH
 	_current = Sim.create_match(config)
 	_previous = _current
 	_pops = []
+	_paused = false
+	_menu = null
+	_over_ticks = 0
 
 
+## Leaves the Match for the Lobby (a placeholder until ticket 18).
+func _to_lobby() -> void:
+	_save_replay()
+	_recording = null
+	_playback = null
+	_screen = Screen.LOBBY
+	_paused = false
+	_menu = Menu.of([START])
+
+
+## Each tick: read every device, then either step the Match or, while a menu
+## is up, let the devices choose from it. The Match stands still while paused
+## and once it is won.
 func _physics_process(_delta: float) -> void:
+	var inputs := _read_devices()
+	_age_pops()
+	if _screen == Screen.MATCH:
+		_previous = _current
+		if _current.win != MatchState.Win.NONE:
+			_over_ticks += 1
+			if _over_ticks == VICTORY_MENU_DELAY:
+				_menu = Menu.of([REMATCH, LOBBY])
+		elif not _paused:
+			_step(inputs)
+	if _menu != null:
+		var chosen := _menu.update(inputs)
+		if chosen != -1:
+			_choose(_menu.options[chosen])
+
+
+func _step(inputs: Array[SeatInput]) -> void:
 	var input: TickInput
 	if _playback != null:
 		if _current.tick >= _playback.length():
-			_previous = _current
 			return
 		input = _playback.input(_current.tick)
 	else:
-		input = _read_devices()
+		input = _tick_input(inputs)
 		_recording.add(input)
 		_saved = false
-	_previous = _current
 	_current = Sim.step(_current, input)
-	_update_pops()
+	_add_pops()
 	if _playback == null and _current.win != MatchState.Win.NONE:
 		_save_replay()
 
 
-func _read_devices() -> TickInput:
+func _choose(option: String) -> void:
+	match option:
+		RESUME:
+			_resume()
+		REMATCH, START:
+			_start_live_match()
+		LOBBY:
+			_to_lobby()
+		FULLSCREEN, WINDOWED:
+			_toggle_fullscreen()
+			_menu.options = _pause_options()
+
+
+func _pause() -> void:
+	_paused = true
+	_menu = Menu.of(_pause_options())
+
+
+func _resume() -> void:
+	_paused = false
+	_menu = null
+
+
+func _pause_options() -> Array[String]:
+	return [RESUME, REMATCH, LOBBY, WINDOWED if _fullscreen() else FULLSCREEN]
+
+
+func _fullscreen() -> bool:
+	var mode := DisplayServer.window_get_mode()
+	return mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
+
+
+## Switches between borderless fullscreen (the default, in project settings)
+## and a window. The window is the largest whole multiple of 960x540 that fits
+## on its screen, so integer scaling still fills it.
+func _toggle_fullscreen() -> void:
+	if not _fullscreen():
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		return
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	var usable := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
+	var logical := Vector2i(SCREEN_WIDTH, MapData.HEIGHT / MPX_PER_PIXEL)
+	# Leave room for the title bar.
+	var scale := maxi(mini(usable.size.x / logical.x, (usable.size.y - 40) / logical.y), 1)
+	DisplayServer.window_set_size(logical * scale)
+	DisplayServer.window_set_position(usable.position + (usable.size - logical * scale) / 2)
+
+
+## Every device's input this tick, in device order.
+func _read_devices() -> Array[SeatInput]:
+	var inputs: Array[SeatInput] = []
+	for device in _devices:
+		inputs.append(device.read())
+	return inputs
+
+
+## The Match's input for this tick from the devices' inputs, with any dev
+## commands.
+func _tick_input(inputs: Array[SeatInput]) -> TickInput:
 	var seats: Array[SeatInput] = []
 	for seat in SEAT_TEAMS.size():
 		seats.append(SeatInput.of(SeatInput.NEUTRAL))
 	for i in _devices.size():
-		seats[DEVICE_SEATS[i]] = _devices[i].read()
+		seats[DEVICE_SEATS[i]] = inputs[i]
 	var input := TickInput.of(_current.tick, seats)
 	input.dev_warrior_seats = _dev_warrior_seats
 	_dev_warrior_seats = []
@@ -156,11 +275,15 @@ func _notification(what: int) -> void:
 		_save_replay()
 
 
-## Ages the kill pops and starts one where each character died this tick.
-func _update_pops() -> void:
+## Ages the kill pops. They keep playing out while the Match stands still.
+func _age_pops() -> void:
 	for pop in _pops:
 		pop.age += 1
 	_pops = _pops.filter(func(pop: Dictionary) -> bool: return pop.age < POP_TICKS)
+
+
+## Starts a kill pop where each character died this tick.
+func _add_pops() -> void:
 	var t := _current.tuning
 	for e in _current.events:
 		if e.type != MatchEvent.Type.DEATH:
@@ -168,6 +291,21 @@ func _update_pops() -> void:
 		var c := _current.characters[e.seat]
 		var height := t.winged_height if c.is_winged() else t.worker_height
 		_pops.append({"at": _to_pixels(Vector2i(c.x, c.y - height / 2)), "team": c.team, "age": 0})
+
+
+## Esc on a keyboard or Start/Menu on a pad pauses a Match in play, or
+## resumes it.
+func _unhandled_input(event: InputEvent) -> void:
+	var key := event as InputEventKey
+	var pad := event as InputEventJoypadButton
+	var pause := (key != null and key.pressed and not key.echo and key.physical_keycode == KEY_ESCAPE) \
+		or (pad != null and pad.pressed and pad.button_index == JOY_BUTTON_START)
+	if not pause or _screen != Screen.MATCH or _current.win != MatchState.Win.NONE:
+		return
+	if _paused:
+		_resume()
+	else:
+		_pause()
 
 
 ## Dev builds only. Until Gates exist, a digit key makes that Seat's Worker a
@@ -186,7 +324,6 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	elif key.physical_keycode == KEY_F9:
 		_play_last_replay()
 	elif key.physical_keycode == KEY_F8:
-		_save_replay()
 		_start_live_match()
 
 
@@ -195,16 +332,22 @@ func _process(_delta: float) -> void:
 
 
 func _draw() -> void:
-	var map := _current.map
 	draw_rect(Rect2(Vector2.ZERO, _to_pixels(Vector2i(MapData.WIDTH, MapData.HEIGHT))), BACKGROUND)
+	if _screen == Screen.LOBBY:
+		_draw_lobby()
+		return
+	var map := _current.map
 	_draw_hives(map)
 	_draw_tiles(map)
+	_draw_barriers(map)
 	_draw_objects(map)
 	_draw_snail()
 	_draw_characters()
 	_draw_berries()
 	_draw_pops()
-	_draw_win()
+	_draw_countdown()
+	_draw_victory()
+	_draw_pause()
 	_draw_playback()
 
 
@@ -223,6 +366,19 @@ func _draw_tiles(map: MapData) -> void:
 			var mark := WRAP_MARK if map.edges[row] == MapData.Edge.WRAP else WORKER_WRAP_MARK
 			draw_rect(Rect2(Vector2(0, row * tile + 2), Vector2(1, tile - 4)), mark)
 			draw_rect(Rect2(Vector2(SCREEN_WIDTH - 1, row * tile + 2), Vector2(1, tile - 4)), mark)
+
+
+## Placeholder starting barriers, while they stand: two ropes along the top of
+## each.
+func _draw_barriers(map: MapData) -> void:
+	if _current.countdown_ticks() == 0:
+		return
+	for barrier in map.barriers:
+		var top_left := _to_pixels(barrier.position)
+		var width := _to_pixels(barrier.size).x
+		for y in [2, 7]:
+			draw_rect(Rect2(top_left + Vector2(0, y), Vector2(width, 3)), ROPE)
+			draw_rect(Rect2(top_left + Vector2(0, y + 1), Vector2(width, 1)), ROPE_LIGHT)
 
 
 ## Placeholder Hives: a team-coloured panel behind each Team's holes and Eggs.
@@ -271,6 +427,7 @@ func _draw_characters() -> void:
 	var alpha := Engine.get_physics_interpolation_fraction()
 	var worker_size := _to_pixels(Vector2i(t.worker_width, t.worker_height))
 	var winged_size := _to_pixels(Vector2i(t.winged_width, t.winged_height))
+	var humans := _human_labels() if _current.countdown_ticks() > 0 else {}
 	for i in _current.characters.size():
 		var now := _current.characters[i]
 		if not now.alive or (now.invulnerable_ticks / BLINK_TICKS) % 2 == 1:
@@ -290,6 +447,29 @@ func _draw_characters() -> void:
 		var size := winged_size if now.is_winged() else worker_size
 		for offset in [-SCREEN_WIDTH, 0, SCREEN_WIDTH]:
 			_draw_character(feet + Vector2(offset, 0), size, now)
+		if humans.has(i):
+			_draw_highlight(feet, size, humans[i])
+
+
+## The label of each Seat a connected device drives, by Seat.
+func _human_labels() -> Dictionary:
+	var labels := {}
+	for i in _devices.size():
+		if _devices[i].connected():
+			labels[DEVICE_SEATS[i]] = _devices[i].label
+	return labels
+
+
+## Marks a human's character during the countdown, so each player can find
+## themselves: a white outline, and an arrow under their device's name.
+func _draw_highlight(feet: Vector2, size: Vector2, label: String) -> void:
+	var body := Rect2(feet - Vector2(size.x / 2, size.y), size).grow(2)
+	draw_rect(Rect2(body.position.round(), body.size), Color.WHITE, false, 1)
+	var tip := Vector2(feet.x, body.position.y - 6).round()
+	draw_colored_polygon(PackedVector2Array([tip, tip + Vector2(-5, -6), tip + Vector2(5, -6)]), Color.WHITE)
+	var font := ThemeDB.fallback_font
+	draw_string_outline(font, tip + Vector2(-40, -10), label, HORIZONTAL_ALIGNMENT_CENTER, 80, 10, 3, Color.BLACK)
+	draw_string(font, tip + Vector2(-40, -10), label, HORIZONTAL_ALIGNMENT_CENTER, 80, 10, Color.WHITE)
 
 
 ## Placeholder Snail: a pink box at its state position, with an eye on the
@@ -355,18 +535,54 @@ func _draw_pops() -> void:
 		draw_arc(pop.at, 6.0 + 22.0 * grown, 0.0, TAU, 24, POP, 2.0)
 
 
-## Placeholder until ticket 16's victory screen: the winning Team and win type
-## across the middle of the screen.
-func _draw_win() -> void:
+## The countdown's seconds left over the middle of the Map, then "GO!".
+func _draw_countdown() -> void:
+	var left := _current.countdown_ticks()
+	var text := ""
+	if left > 0:
+		text = str(ceili(float(left) / Engine.physics_ticks_per_second))
+	elif _current.tick < _current.tuning.match_countdown_ticks + GO_TICKS:
+		text = "GO!"
+	if text != "":
+		_draw_centred(text, 300, 64, Color.WHITE)
+
+
+## Placeholder victory screen: the winning Team and how it won, then, after a
+## moment, a menu to rematch or return to the Lobby.
+func _draw_victory() -> void:
 	if _current.win == MatchState.Win.NONE:
 		return
-	var text := "%s %s WIN" % [TEAM_NAMES[_current.winner], MatchState.Win.keys()[_current.win]]
+	draw_rect(Rect2(0, 0, SCREEN_WIDTH, 540), Color(0, 0, 0, 0.6))
+	_draw_centred(TEAM_NAMES[_current.winner], 210, 64, TEAM_COLOURS[_current.winner])
+	_draw_centred("%s VICTORY" % MatchState.Win.keys()[_current.win], 260, 32, Color.WHITE)
+	if _menu != null:
+		_menu.draw(self, 360, SCREEN_WIDTH)
+
+
+func _draw_pause() -> void:
+	if not _paused:
+		return
+	draw_rect(Rect2(0, 0, SCREEN_WIDTH, 540), Color(0, 0, 0, 0.6))
+	_draw_centred("PAUSED", 230, 48, Color.WHITE)
+	_menu.draw(self, 320, SCREEN_WIDTH)
+
+
+## Placeholder until ticket 18's Lobby.
+func _draw_lobby() -> void:
+	_draw_centred("LOBBY", 200, 64, Color.WHITE)
+	_draw_centred("Placeholder until ticket 18: the Seats are fixed and the keyboards play the Queens.",
+		250, 16, Color.WHITE)
+	_menu.draw(self, 340, SCREEN_WIDTH)
+
+
+## Draws `text` centred across the screen with its baseline at `y`, outlined so
+## it reads over the Map.
+func _draw_centred(text: String, y: float, size: int, colour: Color) -> void:
 	var font := ThemeDB.fallback_font
-	var size := 32
-	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-	var at := Vector2((SCREEN_WIDTH - width) / 2.0, 270)
-	draw_rect(Rect2(0, at.y - size, SCREEN_WIDTH, size * 1.5), Color(0, 0, 0, 0.6))
-	draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, TEAM_COLOURS[_current.winner])
+	var at := Vector2(0, y)
+	draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_CENTER, SCREEN_WIDTH, size, maxi(size / 8, 2),
+		Color.BLACK)
+	draw_string(font, at, text, HORIZONTAL_ALIGNMENT_CENTER, SCREEN_WIDTH, size, colour)
 
 
 ## While a Replay plays back: which tick of how many, at the top left.

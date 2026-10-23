@@ -48,6 +48,14 @@ _Avoid_: Slot, station, player number
 The per-Team setting (Easy, Normal, Hard) that governs how well that Team's Bots decide and, on Easy only, slows them to the arcade's Bot speed. It never grants a Bot an ability a human lacks.
 _Avoid_: AI level, CPU strength
 
+**Countdown**:
+The first few seconds of a Match, while the Starting Barriers stand. Players can move but can't leave their Hives' level.
+_Avoid_: Warm-up, pre-game
+
+**Starting Barrier**:
+A part of the Map that is solid only during the Countdown. On Day they are rope floors across the gaps in the Hives' level.
+_Avoid_: Gate (a different thing), wall
+
 **Replay**:
 The recorded input stream of a Match, from which the whole Match can be reproduced exactly.
 _Avoid_: Recording, video

@@ -27,6 +27,13 @@ var berries: Array[BerryState]
 var snail: SnailState
 
 
+## Ticks left in the countdown that starts the Match, during which the Map's
+## starting barriers stand: the input for this state's tick is still held by
+## them while this is above zero.
+func countdown_ticks() -> int:
+	return maxi(tuning.match_countdown_ticks - tick, 0)
+
+
 func copy() -> MatchState:
 	var s := MatchState.new()
 	s.tick = tick

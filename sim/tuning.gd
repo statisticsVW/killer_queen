@@ -8,6 +8,7 @@ extends RefCounted
 
 const DEFAULT_PATH := "res://data/tuning.cfg"
 
+var match_countdown_ticks: int
 var worker_max_speed: int
 var worker_run_accel: int
 var worker_run_decel: int
