@@ -35,14 +35,8 @@ const POP_TICKS := 15
 ## Invulnerable characters blink: this many ticks shown, then as many hidden.
 const BLINK_TICKS := 3
 
-## Seats 0-4 are Blue, 5-9 Gold.
-const SEAT_TEAMS: Array[int] = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
-## Each Team's first Seat is its Queen, so the two keyboards play the Queens.
-const QUEEN_SEATS: Array[int] = [0, 5]
-## The Seat each device drives, in device order (see _devices). Teams
-## alternate, so the first two players are opponents. Seats whose device isn't
-## connected when a Match starts are Bots.
-const DEVICE_SEATS: Array[int] = [0, 5, 1, 6, 2, 7, 3, 8, 4, 9]
+## Pads are read for this many Godot joypad ids.
+const PADS := 8
 
 ## How long the victory screen shows before its menu takes input, in physics
 ## ticks, so a button mashed as the Match ends doesn't choose for anyone.
@@ -58,16 +52,24 @@ const REMATCH := "REMATCH"
 const LOBBY := "LOBBY"
 const FULLSCREEN := "FULLSCREEN"
 const WINDOWED := "WINDOWED"
-const START := "START MATCH"
 
-## The Lobby is a placeholder until ticket 18.
 enum Screen { LOBBY, MATCH }
+
+## Where each slot of the Lobby's row is drawn: its centre x, in logical
+## pixels. Each Queen Seat stands apart from its Team's Worker Seats, and each
+## Team's Bot Difficulty is at its end.
+const SLOT_X: Array[int] = [48, 146, 236, 306, 376, 446, 514, 584, 654, 724, 814, 912]
+const LOBBY_SEAT_BOTTOM := 300
+const DIFFICULTY_NAMES := ["EASY", "NORMAL", "HARD"]
 
 ## Every device that can drive a Seat, in a fixed order: the two keyboard
 ## layouts, then pads by Godot device id. Each has read() -> SeatInput,
-## connected() -> bool and a label.
+## connected() -> bool and a label. The Lobby knows devices by this order.
 var _devices: Array = [KeyboardLayout.wasd(), KeyboardLayout.arrows()]
-var _screen := Screen.MATCH
+var _lobby := Lobby.new()
+var _screen := Screen.LOBBY
+## The Seat each device plays in the Match, by device (from the Lobby).
+var _device_seats := {}
 var _previous: MatchState
 var _current: MatchState
 ## Whether the Match is paused: the sim doesn't step.
@@ -88,21 +90,17 @@ var _playback: Replay
 
 
 func _ready() -> void:
-	for device in DEVICE_SEATS.size() - _devices.size():
+	for device in PADS:
 		_devices.append(Pad.of(device))
-	_start_live_match()
 
 
-## Starts a new live Match with the same Seats (a rematch).
+## Starts a new live Match with the Lobby's Seats; Bots take the rest. A
+## rematch keeps the same Seats.
 func _start_live_match() -> void:
 	_save_replay()
-	var config := MatchConfig.new()
+	var config := _lobby.match_config()
+	_device_seats = _lobby.local_seats()
 	config.map = MapData.load_file(MAP_PATH)
-	config.seat_teams = SEAT_TEAMS
-	config.queen_seats = QUEEN_SEATS
-	for i in _devices.size():
-		if not _devices[i].connected():
-			config.bot_seats.append(DEVICE_SEATS[i])
 	config.tuning = Tuning.load_default()
 	config.seed = randi()
 	_recording = Replay.record(config)
@@ -121,23 +119,30 @@ func _start(config: MatchConfig) -> void:
 	_over_ticks = 0
 
 
-## Leaves the Match for the Lobby (a placeholder until ticket 18).
+## Leaves the Match for the Lobby, where everyone is still at their Seat.
 func _to_lobby() -> void:
 	_save_replay()
 	_recording = null
 	_playback = null
 	_screen = Screen.LOBBY
 	_paused = false
-	_menu = Menu.of([START])
+	_menu = null
+	_lobby.reopen()
 
 
-## Each tick: read every device, then either step the Match or, while a menu
-## is up, let the devices choose from it. The Match stands still while paused
-## and once it is won.
+## Each tick: read every device, then run the Lobby, or step the Match or,
+## while a menu is up, let the devices choose from it. The Match stands still
+## while paused and once it is won.
 func _physics_process(_delta: float) -> void:
 	var inputs := _read_devices()
 	_age_pops()
-	if _screen == Screen.MATCH:
+	if _screen == Screen.LOBBY:
+		var connected: Array[bool] = []
+		for device in _devices:
+			connected.append(device.connected())
+		if _lobby.update(inputs, connected):
+			_start_live_match()
+	elif _screen == Screen.MATCH:
 		_previous = _current
 		if _current.win != MatchState.Win.NONE:
 			_over_ticks += 1
@@ -171,7 +176,7 @@ func _choose(option: String) -> void:
 	match option:
 		RESUME:
 			_resume()
-		REMATCH, START:
+		REMATCH:
 			_start_live_match()
 		LOBBY:
 			_to_lobby()
@@ -223,13 +228,14 @@ func _read_devices() -> Array[SeatInput]:
 	return inputs
 
 
-## The Match's input for this tick from the devices' inputs.
+## The Match's input for this tick from the devices' inputs: each human
+## Seat's device. Bot Seats' input is left neutral; the sim makes their own.
 func _tick_input(inputs: Array[SeatInput]) -> TickInput:
 	var seats: Array[SeatInput] = []
-	for seat in SEAT_TEAMS.size():
+	for seat in _current.characters.size():
 		seats.append(SeatInput.of(SeatInput.NEUTRAL))
-	for i in _devices.size():
-		seats[DEVICE_SEATS[i]] = inputs[i]
+	for device in _device_seats:
+		seats[_device_seats[device]] = inputs[device]
 	return TickInput.of(_current.tick, seats)
 
 
@@ -303,7 +309,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 ## Dev builds only. F9 plays back the last Match's Replay; F8 starts a new live
-## Match.
+## Match with the Lobby's Seats as they are.
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if not OS.is_debug_build() or not key.pressed or key.echo:
@@ -451,9 +457,9 @@ func _draw_characters() -> void:
 ## The label of each Seat a connected device drives, by Seat.
 func _human_labels() -> Dictionary:
 	var labels := {}
-	for i in _devices.size():
-		if _devices[i].connected():
-			labels[DEVICE_SEATS[i]] = _devices[i].label
+	for device in _device_seats:
+		if _devices[device].connected():
+			labels[_device_seats[device]] = _devices[device].label
 	return labels
 
 
@@ -576,13 +582,65 @@ func _draw_pause() -> void:
 	_menu.draw(self, 320, SCREEN_WIDTH)
 
 
-## Placeholder until ticket 18's Lobby.
+## The Lobby: each Team's Seats (its Queen's larger and apart) and Bot
+## Difficulty in one row, as the Lobby lays them out. A Seat someone locked
+## into is filled in its Team colour with their device's name; one nobody has
+## is marked BOT. Players still choosing show under where they are.
 func _draw_lobby() -> void:
-	_draw_centred("LOBBY", 200, 64, Color.WHITE)
-	_draw_centred("Placeholder until ticket 18: the Seats are fixed and the keyboards play the Queens.",
-		250, 16, Color.WHITE)
-	_draw_centred("Seats without a connected pad are Bots.", 272, 16, Color.WHITE)
-	_menu.draw(self, 340, SCREEN_WIDTH)
+	_draw_centred("LOBBY", 80, 48, Color.WHITE)
+	_draw_centred("Press your button to join. Move with the stick, press to lock in a Seat.", 120, 16,
+		Color.WHITE)
+	var font := ThemeDB.fallback_font
+	for slot in Lobby.SLOT_SEATS.size():
+		var seat := Lobby.SLOT_SEATS[slot]
+		var x := SLOT_X[slot]
+		if seat == -1:
+			var side := 0 if slot == 0 else 1
+			var panel := Rect2(x - 44, LOBBY_SEAT_BOTTOM - 70, 88, 70)
+			draw_rect(panel, TEAM_COLOURS[side], false, 2)
+			_draw_in(font, panel, 24, "BOTS", 12, Color.WHITE)
+			_draw_in(font, panel, 48, DIFFICULTY_NAMES[_lobby.difficulties[side]], 14, Color.WHITE)
+			continue
+		var team := Lobby.SEAT_TEAMS[seat]
+		var queen := seat in Lobby.QUEEN_SEATS
+		var size := Vector2(72, 104) if queen else Vector2(60, 80)
+		var box := Rect2(Vector2(x - size.x / 2, LOBBY_SEAT_BOTTOM - size.y), size)
+		var holder := _lobby.owner_of(seat)
+		if holder != null:
+			draw_rect(box, TEAM_COLOURS[team])
+			_draw_in(font, box, size.y / 2 + 5, _devices[holder.device].label, 12, Color.WHITE)
+		else:
+			draw_rect(box, HIVE_COLOURS[team].darkened(0.4))
+			draw_rect(box, TEAM_COLOURS[team], false, 2)
+			_draw_in(font, box, size.y / 2 + 5, "BOT", 12, Color(1, 1, 1, 0.6))
+		if queen:
+			draw_rect(Rect2(box.position + Vector2(10, -8), Vector2(size.x - 20, 8)), CROWN)
+		_draw_in(font, box, size.y - 6, "QUEEN" if queen else "WORKER", 10, Color(1, 1, 1, 0.7))
+	# Players not yet locked in, under the slot each is at.
+	var shown := {}
+	for p in _lobby.players:
+		if p.locked:
+			continue
+		var row: int = shown.get(p.slot, 0)
+		shown[p.slot] = row + 1
+		var at := Vector2(SLOT_X[p.slot], LOBBY_SEAT_BOTTOM + 14 + row * 22)
+		draw_colored_polygon(PackedVector2Array([at, at + Vector2(-5, 7), at + Vector2(5, 7)]), Color.WHITE)
+		draw_string(font, at + Vector2(-40, 20), _devices[p.device].label, HORIZONTAL_ALIGNMENT_CENTER, 80, 12,
+			Color.WHITE)
+	if _lobby.start_ticks > 0:
+		_draw_centred("STARTING IN %d" % ceili(float(_lobby.start_ticks) / Engine.physics_ticks_per_second),
+			460, 32, Color.WHITE)
+	elif _lobby.players.is_empty():
+		_draw_centred("PRESS YOUR BUTTON TO JOIN", 460, 24, Color.WHITE)
+	else:
+		_draw_centred("The Match starts once everyone is locked in. Empty Seats are Bots.", 460, 16,
+			Color.WHITE)
+
+
+## Draws text centred across a box, its baseline y below the box's top.
+func _draw_in(font: Font, box: Rect2, y: float, text: String, size: int, colour: Color) -> void:
+	draw_string(font, Vector2(box.position.x, box.position.y + y), text, HORIZONTAL_ALIGNMENT_CENTER,
+		box.size.x, size, colour)
 
 
 ## Draws `text` centred across the screen with its baseline at `y`, outlined so
