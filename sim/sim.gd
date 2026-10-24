@@ -31,6 +31,9 @@ static func create_match(config: MatchConfig) -> MatchState:
 			if seat in config.warrior_seats:
 				c.role = CharacterState.Role.WARRIOR
 			c.speed = seat in config.speed_seats
+		if seat in config.bot_seats:
+			c.bot = BotState.new()
+			c.bot.difficulty = config.bot_difficulties[c.team] as Bot.Difficulty
 		c.spawn = config.map.spawns[c.team][spawn_index]
 		c.x = c.spawn.x
 		c.y = c.spawn.y
@@ -71,7 +74,8 @@ static func _pile_slots(map: MapData, t: Tuning) -> Array[Vector2i]:
 
 
 ## Returns the state one tick after `state`. `input` must be tagged with
-## state.tick, the tick it applies to. During the countdown that starts the
+## state.tick, the tick it applies to; a Bot Seat plays its Bot's input
+## instead of the one `input` holds for it. During the countdown that starts the
 ## Match (MatchState.countdown_ticks), the Map's starting barriers are solid.
 ## Once a Team has won, the Match is over: stepping it changes nothing but the
 ## tick.
@@ -80,12 +84,17 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 	var next := state.copy()
 	next.tick += 1
 	next.events = []
+	next.inputs = input.seats.duplicate()
 	if next.win != MatchState.Win.NONE:
 		return next
+	# Bots decide from the state as it stood, before anyone moves.
+	for c in next.characters:
+		if c.bot != null:
+			next.inputs[c.seat] = Bot.input(next, c)
 	# The starting barriers stand for inputs tagged within the countdown.
 	var barriers := state.countdown_ticks() > 0
 	for c in next.characters:
-		var seat_input := input.seats[c.seat]
+		var seat_input := next.inputs[c.seat]
 		var pressed := seat_input.button and not c.button_held
 		c.button_held = seat_input.button
 		if not c.alive:
@@ -105,24 +114,7 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 		# A Worker transforming in a Gate stays put.
 		if c.gate != -1:
 			continue
-		c.invulnerable_ticks = maxi(c.invulnerable_ticks - 1, 0)
-		_run(c, seat_input, next.tuning)
-		if c.is_winged():
-			# Gravity comes before the Flap, so an air brake ends the tick still.
-			_fall(c, seat_input, next.tuning)
-			_flap(c, pressed, next.tuning)
-		else:
-			_jump(c, pressed, seat_input.button, next.tuning)
-			_fall(c, seat_input, next.tuning)
-		c.stuck_ticks = maxi(c.stuck_ticks - 1, 0)
-		var rising_speed := -c.vy
-		var contact := _move_character(c, next.map, next.tuning, barriers)
-		c.airborne_ticks = 0 if contact == Contact.FLOOR else c.airborne_ticks + 1
-		if contact == Contact.CEILING:
-			_hit_ceiling(c, rising_speed, next.tuning)
-		elif c.stuck_ticks > 0 and not _under_ceiling(c, next.map, next.tuning, barriers):
-			c.stuck_ticks = 0
-		c.on_head = false
+		_advance(c, seat_input, pressed, next.map, next.tuning, barriers)
 	_update_snail(next)
 	if next.win == MatchState.Win.NONE:
 		_collide_characters(state, next)
@@ -135,13 +127,36 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 	return next
 
 
+## Moves a living character one tick by its own input, as if nothing else
+## were on the Map: steering, jumping or Flapping, falling, then against the
+## terrain. BotNav runs Workers through this too, to find their Moves.
+static func _advance(c: CharacterState, input: SeatInput, pressed: bool, map: MapData, t: Tuning,
+		barriers: bool) -> void:
+	c.invulnerable_ticks = maxi(c.invulnerable_ticks - 1, 0)
+	_run(c, input, t)
+	if c.is_winged():
+		# Gravity comes before the Flap, so an air brake ends the tick still.
+		_fall(c, input, t)
+		_flap(c, pressed, t)
+	else:
+		_jump(c, pressed, input.button, t)
+		_fall(c, input, t)
+	c.stuck_ticks = maxi(c.stuck_ticks - 1, 0)
+	var rising_speed := -c.vy
+	var contact := _move_character(c, map, t, barriers)
+	c.airborne_ticks = 0 if contact == Contact.FLOOR else c.airborne_ticks + 1
+	if contact == Contact.CEILING:
+		_hit_ceiling(c, rising_speed, t)
+	elif c.stuck_ticks > 0 and not _under_ceiling(c, map, t, barriers):
+		c.stuck_ticks = 0
+	c.on_head = false
+
+
 static func _run(c: CharacterState, input: SeatInput, t: Tuning) -> void:
 	if c.bump_ticks > 0:
 		c.bump_ticks -= 1
 		return
-	var max_speed := t.worker_max_speed
-	if c.speed:
-		max_speed = max_speed * t.speed_ratio / 10000
+	var max_speed := _max_speed(c, t)
 	if c.is_winged() and c.airborne_ticks == 0:
 		max_speed = max_speed * t.winged_walk_speed_ratio / 10000
 	var target := input.horizontal * max_speed
@@ -149,6 +164,17 @@ static func _run(c: CharacterState, input: SeatInput, t: Tuning) -> void:
 	c.vx = _approach(c.vx, target, rate)
 	if input.horizontal != SeatInput.NEUTRAL:
 		c.facing = input.horizontal
+
+
+## A character's top horizontal speed, before winged walking slows it: raised
+## by the Speed upgrade, and slowed to the arcade's Bot speed for an Easy Bot.
+static func _max_speed(c: CharacterState, t: Tuning) -> int:
+	var max_speed := t.worker_max_speed
+	if c.speed:
+		max_speed = max_speed * t.speed_ratio / 10000
+	if c.bot != null and c.bot.difficulty == Bot.Difficulty.EASY:
+		max_speed = max_speed * t.bot_easy_speed_ratio / 10000
+	return max_speed
 
 
 ## A press (not a hold) jumps while standing or within the coyote window after

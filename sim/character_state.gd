@@ -58,6 +58,8 @@ var speed: bool
 ## the first gate_hold_ticks, then is locked in.
 var gate: int = -1
 var gate_ticks: int
+## What the Bot playing this Seat remembers, or null for a human's Seat.
+var bot: BotState
 
 
 func is_winged() -> bool:
@@ -98,4 +100,5 @@ func copy() -> CharacterState:
 	c.speed = speed
 	c.gate = gate
 	c.gate_ticks = gate_ticks
+	c.bot = bot.copy() if bot != null else null
 	return c

@@ -61,6 +61,8 @@ var gate_height: int
 var gate_hold_ticks: int
 var gate_locked_ticks: int
 var gate_invulnerable_ticks: int
+var bot_easy_speed_ratio: int
+var bot_choice_jitter_ticks: int
 
 
 static func load_default() -> Tuning:

@@ -10,6 +10,11 @@ const QUEENS: Array[int] = [0, 5]
 const WARRIORS: Array[int] = [1, 6]
 const SPEED: Array[int] = [2, 6, 7]
 const TICKS := 1500
+const ALL_SEATS: Array[int] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+## Matches with Bots are shorter, and compare states every CHECK_TICKS ticks:
+## fingerprints are slow.
+const BOT_TICKS := 1000
+const CHECK_TICKS := 4
 
 
 func test_a_replay_played_back_reproduces_the_match() -> void:
@@ -98,6 +103,80 @@ func test_the_seed_is_part_of_the_match_state_and_stays_in_it() -> void:
 	assert_str(a.fingerprint()).is_not_equal(other.fingerprint())
 
 
+func test_the_same_seed_and_seats_give_the_same_match_tick_for_tick_with_bots() -> void:
+	var config := _bot_config(31, ALL_SEATS)
+	var start := Sim.create_match(config)
+	var a := start
+	var b := Sim.create_match(config)
+
+	for tick in BOT_TICKS:
+		a = Sim.step(a, _scripted_input(a))
+		b = Sim.step(b, _scripted_input(b))
+		if tick % CHECK_TICKS == 0 and a.fingerprint() != b.fingerprint():
+			fail("The Matches differ at tick %d" % a.tick)
+			return
+		# A copy keeps every Bot's state too.
+		if tick % CHECK_TICKS == 1 and a.copy().fingerprint() != a.fingerprint():
+			fail("The copy at tick %d differs from its original" % a.tick)
+			return
+
+	# The Bots drew from the Match's random generator.
+	assert_int(a.rng).is_not_equal(start.rng)
+
+
+func test_a_replay_keeps_only_human_input_and_reproduces_a_match_with_bots() -> void:
+	# The Queens are human; every other Seat is a Bot, whose scripted input is
+	# ignored and not recorded.
+	var bots: Array[int] = [1, 2, 3, 4, 6, 7, 8, 9]
+	var config := _bot_config(57, bots)
+	var state := Sim.create_match(config)
+	var replay := Replay.record(config)
+	# The same Match recorded with the Bot Seats' input left neutral.
+	var without_bots := Replay.record(config)
+	for tick in BOT_TICKS:
+		var input := _scripted_input(state)
+		replay.add(input)
+		var humans_only := _scripted_input(state)
+		for seat in bots:
+			humans_only.seats[seat] = SeatInput.of(SeatInput.NEUTRAL)
+		without_bots.add(humans_only)
+		state = Sim.step(state, input)
+
+	var text := replay.to_text()
+	assert_str(text).is_equal(without_bots.to_text())
+	var loaded := Replay.from_text(text)
+	var loaded_config := loaded.config()
+	assert_array(loaded_config.bot_seats).is_equal(bots)
+	assert_array(loaded_config.bot_difficulties).is_equal(config.bot_difficulties)
+	var played := Sim.create_match(loaded_config)
+	for tick in loaded.length():
+		var input := loaded.input(tick)
+		for seat in bots:
+			assert_int(input.seats[seat].horizontal).is_equal(SeatInput.NEUTRAL)
+		played = Sim.step(played, input)
+
+	assert_int(loaded.length()).is_equal(BOT_TICKS)
+	assert_str(played.fingerprint()).is_equal(state.fingerprint())
+
+
+func test_a_replay_of_an_all_bot_match_keeps_its_length() -> void:
+	var config := _bot_config(3, ALL_SEATS)
+	var state := Sim.create_match(config)
+	var replay := Replay.record(config)
+	for tick in 200:
+		var input := _scripted_input(state)
+		replay.add(input)
+		state = Sim.step(state, input)
+
+	var loaded := Replay.from_text(replay.to_text())
+	var played := Sim.create_match(loaded.config())
+	for tick in loaded.length():
+		played = Sim.step(played, loaded.input(tick))
+
+	assert_int(loaded.length()).is_equal(200)
+	assert_str(played.fingerprint()).is_equal(state.fingerprint())
+
+
 func test_the_sim_reads_no_clock_and_no_unseeded_randomness() -> void:
 	var forbidden := RegEx.create_from_string(
 		"\\b(Time|OS|RandomNumberGenerator|randi|randf|randi_range|randf_range|randomize|seed|rand_from_seed)\\s*[.(]")
@@ -120,6 +199,17 @@ func _config(seed: int) -> MatchConfig:
 	config.speed_seats = SPEED
 	config.tuning = Tuning.load_default()
 	config.seed = seed
+	return config
+
+
+## A Match on Day with `bots` as Bot Seats, Blue's Easy and Gold's Hard, and
+## no Seats starting upgraded.
+func _bot_config(seed: int, bots: Array[int]) -> MatchConfig:
+	var config := _config(seed)
+	config.warrior_seats = []
+	config.speed_seats = []
+	config.bot_seats = bots
+	config.bot_difficulties = [Bot.Difficulty.EASY, Bot.Difficulty.HARD]
 	return config
 
 

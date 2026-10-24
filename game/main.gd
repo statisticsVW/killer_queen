@@ -40,8 +40,8 @@ const SEAT_TEAMS: Array[int] = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
 ## Each Team's first Seat is its Queen, so the two keyboards play the Queens.
 const QUEEN_SEATS: Array[int] = [0, 5]
 ## The Seat each device drives, in device order (see _devices). Teams
-## alternate, so the first two players are opponents. Seats no device drives
-## stand idle.
+## alternate, so the first two players are opponents. Seats whose device isn't
+## connected when a Match starts are Bots.
 const DEVICE_SEATS: Array[int] = [0, 5, 1, 6, 2, 7, 3, 8, 4, 9]
 
 ## How long the victory screen shows before its menu takes input, in physics
@@ -100,6 +100,9 @@ func _start_live_match() -> void:
 	config.map = MapData.load_file(MAP_PATH)
 	config.seat_teams = SEAT_TEAMS
 	config.queen_seats = QUEEN_SEATS
+	for i in _devices.size():
+		if not _devices[i].connected():
+			config.bot_seats.append(DEVICE_SEATS[i])
 	config.tuning = Tuning.load_default()
 	config.seed = randi()
 	_recording = Replay.record(config)
@@ -578,6 +581,7 @@ func _draw_lobby() -> void:
 	_draw_centred("LOBBY", 200, 64, Color.WHITE)
 	_draw_centred("Placeholder until ticket 18: the Seats are fixed and the keyboards play the Queens.",
 		250, 16, Color.WHITE)
+	_draw_centred("Seats without a connected pad are Bots.", 272, 16, Color.WHITE)
 	_menu.draw(self, 340, SCREEN_WIDTH)
 
 

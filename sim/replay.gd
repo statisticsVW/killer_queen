@@ -1,21 +1,25 @@
 class_name Replay
 extends RefCounted
 ## A Match's Replay: everything Sim.create_match was given (the Map's file,
-## Seats, seed and the whole tuning table) plus every tick's input, from which
-## the Match can be reproduced exactly (ADR-0002). Once Bots exist (ticket 17)
-## only human Seats' input needs keeping, and the Bot Difficulties join the
-## config.
+## Seats, Bot Seats and Difficulties, seed and the whole tuning table) plus
+## every tick's input for the human Seats, from which the Match can be
+## reproduced exactly (ADR-0002). Bot Seats' input isn't kept: the sim makes it
+## again.
 
-const _VERSION := 5
+const _VERSION := 6
 
 var _map_source: String
 var _seat_teams: Array[int]
 var _queen_seats: Array[int]
 var _warrior_seats: Array[int]
 var _speed_seats: Array[int]
+var _bot_seats: Array[int]
+var _bot_difficulties: Array[int]
 var _seed: int
 var _tuning: Dictionary
-## One byte per Seat per tick, in tick then Seat order (see _encode).
+## Ticks of input held.
+var _length: int
+## One byte per human Seat per tick, in tick then Seat order (see _encode).
 var _seat_codes := PackedByteArray()
 
 
@@ -27,6 +31,8 @@ static func record(config: MatchConfig) -> Replay:
 	replay._queen_seats = config.queen_seats.duplicate()
 	replay._warrior_seats = config.warrior_seats.duplicate()
 	replay._speed_seats = config.speed_seats.duplicate()
+	replay._bot_seats = config.bot_seats.duplicate()
+	replay._bot_difficulties = config.bot_difficulties.duplicate()
 	replay._seed = config.seed
 	replay._tuning = config.tuning.values()
 	return replay
@@ -36,13 +42,15 @@ static func record(config: MatchConfig) -> Replay:
 func add(input: TickInput) -> void:
 	assert(input.tick == length(), "Replay expects tick %d, got %d" % [length(), input.tick])
 	assert(input.seats.size() == _seat_teams.size(), "Replay input needs one SeatInput per Seat")
-	for seat_input in input.seats:
-		_seat_codes.append(_encode(seat_input))
+	for seat in input.seats.size():
+		if not seat in _bot_seats:
+			_seat_codes.append(_encode(input.seats[seat]))
+	_length += 1
 
 
 ## How many ticks of input the Replay holds.
 func length() -> int:
-	return _seat_codes.size() / _seat_teams.size()
+	return _length
 
 
 ## The config to create the recorded Match from.
@@ -56,17 +64,23 @@ func config() -> MatchConfig:
 	config.queen_seats = _queen_seats.duplicate()
 	config.warrior_seats = _warrior_seats.duplicate()
 	config.speed_seats = _speed_seats.duplicate()
+	config.bot_seats = _bot_seats.duplicate()
+	config.bot_difficulties = _bot_difficulties.duplicate()
 	config.seed = _seed
 	config.tuning = Tuning.from_values(_tuning)
 	return config
 
 
-## The input recorded for `tick`.
+## The input recorded for `tick`, neutral for Bot Seats.
 func input(tick: int) -> TickInput:
 	var seats: Array[SeatInput] = []
-	var first := tick * _seat_teams.size()
-	for i in _seat_teams.size():
-		seats.append(_decode(_seat_codes[first + i]))
+	var code := tick * (_seat_teams.size() - _bot_seats.size())
+	for seat in _seat_teams.size():
+		if seat in _bot_seats:
+			seats.append(SeatInput.of(SeatInput.NEUTRAL))
+		else:
+			seats.append(_decode(_seat_codes[code]))
+			code += 1
 	return TickInput.of(tick, seats)
 
 
@@ -78,8 +92,11 @@ func to_text() -> String:
 		"queen_seats": _queen_seats,
 		"warrior_seats": _warrior_seats,
 		"speed_seats": _speed_seats,
+		"bot_seats": _bot_seats,
+		"bot_difficulties": _bot_difficulties,
 		"seed": _seed,
 		"tuning": _tuning,
+		"length": _length,
 		"seat_codes": _seat_codes,
 	})
 
@@ -93,8 +110,11 @@ static func from_text(text: String) -> Replay:
 	replay._queen_seats.assign(data.queen_seats)
 	replay._warrior_seats.assign(data.warrior_seats)
 	replay._speed_seats.assign(data.speed_seats)
+	replay._bot_seats.assign(data.bot_seats)
+	replay._bot_difficulties.assign(data.bot_difficulties)
 	replay._seed = data.seed
 	replay._tuning = data.tuning
+	replay._length = data.length
 	replay._seat_codes = data.seat_codes
 	return replay
 

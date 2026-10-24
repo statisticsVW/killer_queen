@@ -13,6 +13,10 @@ var queen_seats: Array[int]
 ## plain Worker; these set up tests and dev builds.
 var warrior_seats: Array[int]
 var speed_seats: Array[int]
+## Seats the sim drives itself (Bots), and each Team's Bot Difficulty,
+## indexed by Team.
+var bot_seats: Array[int]
+var bot_difficulties: Array[int] = [Bot.Difficulty.NORMAL, Bot.Difficulty.NORMAL]
 var tuning: Tuning
 ## Seeds the Match's random generator, the only source of randomness in the
 ## sim (ADR-0002).
