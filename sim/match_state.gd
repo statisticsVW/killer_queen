@@ -34,7 +34,8 @@ var gates: Array[GateState]
 ## The input each Seat played in the tick that produced this state: a Bot's
 ## own input for a Bot Seat. Treat each as immutable.
 var inputs: Array[SeatInput]
-## The BotNav for each Worker speed (see Bot._nav), built as Bots need them.
+## Bots' navigation data (BotNav for each Worker speed, BotFlight), built as
+## Bots need it.
 ## Derived from the Map and Tuning, so shared by every copy like them and not
 ## part of the state's values.
 var navs: Dictionary
