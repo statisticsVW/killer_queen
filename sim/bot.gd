@@ -5,7 +5,7 @@ extends RefCounted
 ## device gives a human, so a Bot can do nothing a human can't. Its choices
 ## draw on the Match's random generator, so a Match with Bots plays out the
 ## same from the same seed and human input. Each role has its own behaviour:
-## BotQueen and BotWorker. Warrior Bots stand idle for now.
+## BotQueen, BotWorker and BotWarrior.
 
 ## A Team's Bot Difficulty. Easy Bots move at the arcade's Bot speed
 ## (bot_easy_speed_ratio); otherwise the levels play alike, for now.
@@ -18,9 +18,9 @@ static func input(state: MatchState, c: CharacterState) -> SeatInput:
 	match c.role:
 		CharacterState.Role.QUEEN:
 			return BotQueen.input(state, c)
-		CharacterState.Role.WORKER:
-			return BotWorker.input(state, c)
-	return SeatInput.of(SeatInput.NEUTRAL)
+		CharacterState.Role.WARRIOR:
+			return BotWarrior.input(state, c)
+	return BotWorker.input(state, c)
 
 
 ## Presses the button, with the stick at `stick`; if it is still held from

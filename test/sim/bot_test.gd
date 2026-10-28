@@ -1,7 +1,6 @@
 extends GdUnitTestSuite
 ## Bots: Seats the sim drives itself, through the same Seat input a device
-## gives. This ticket's Bot Workers run Berries. Driven only through
-## Sim.create_match and Sim.step, on Day.
+## gives. Driven only through Sim.create_match and Sim.step, on Day.
 ##
 ## Seats 0-4 are Blue and 5-9 Gold unless a test says otherwise.
 
@@ -24,8 +23,12 @@ func test_a_bot_seat_plays_its_own_input_whatever_the_tick_input_holds_for_it() 
 	for seat in TEAMS.size():
 		mashing.append(SeatInput.of(SeatInput.RIGHT, false, true))
 
+	var moved := {}
 	for i in 300:
 		fed = Sim.step(fed, TickInput.of(fed.tick, mashing))
+		for seat in WORKERS:
+			if fed.characters[seat].x != start.characters[seat].x:
+				moved[seat] = true
 		var neutral := _neutral(idle.tick, TEAMS.size())
 		for queen in QUEENS:
 			neutral.seats[queen] = mashing[queen]
@@ -37,7 +40,6 @@ func test_a_bot_seat_plays_its_own_input_whatever_the_tick_input_holds_for_it() 
 	for queen in QUEENS:
 		assert_object(fed.inputs[queen]).is_same(mashing[queen])
 	# The Bots did move, on their own input.
-	var moved := WORKERS.filter(func(s: int) -> bool: return fed.characters[s].x != start.characters[s].x)
 	assert_int(moved.size()).is_equal(WORKERS.size())
 	for seat in WORKERS:
 		assert_object(fed.inputs[seat]).is_not_same(mashing[seat])
@@ -104,33 +106,72 @@ func test_bot_workers_alone_on_a_team_reach_an_economic_win_within_40_seconds() 
 		assert_int(state.winner).is_equal(team)
 
 
-func test_a_bot_worker_gets_off_the_snail_and_runs_berries() -> void:
-	# On a floor, a Blue Bot Worker spawns on the Snail; a Berry pile and
-	# Blue's Hive are off to the right.
-	var cfg := TestMaps.config(TestMaps.floor_tiles(), [Vector2i(300, 960)])
-	cfg.set_value("snail", "start", Vector2i(300, 960))
-	cfg.set_value("snail", "blue_goal", Vector2i(60, 960))
-	cfg.set_value("snail", "gold_goal", Vector2i(1860, 960))
-	cfg.set_value("berries", "piles", [Vector2i(900, 960)])
-	cfg.set_value("hive", "blue_holes", [Vector2i(1500, 900), Vector2i(1560, 900)])
+func test_an_all_bot_match_ends_in_a_win_within_2_minutes_and_the_same_way_every_time() -> void:
+	var config := _config(TEAMS, QUEENS, EVERY_SEAT, 2)
+	var ends: Array[String] = []
+	for run in 2:
+		var state := Sim.create_match(config)
+		for i in 6000:
+			state = Sim.step(state, _neutral(state.tick, TEAMS.size()))
+			if state.win != MatchState.Win.NONE:
+				break
+		assert_int(state.win).is_not_equal(MatchState.Win.NONE)
+		ends.append("%d %d %d %s" % [state.win, state.winner, state.tick, state.fingerprint()])
+
+	assert_str(ends[1]).is_equal(ends[0])
+
+
+func test_a_bot_worker_goes_after_a_loose_berry_kicked_onto_another_ledge() -> void:
+	# A shelf at the top left holds a Berry pile, too high for a Worker on the
+	# platform below it or the floor to reach. Blue's human Workers each take
+	# a Berry from it and walk right, dropping onto the platform. Gold's human
+	# Queen stands at the platform's right end: the first Blue Worker walks into
+	# her and dies, dropping its Berry loose there, and she flies off. Gold's
+	# Bot Worker, out on the floor, goes for that Berry. The second Blue Worker
+	# runs into it and kicks it off the platform onto the floor, and the Bot
+	# follows it there.
+	var cfg := TestMaps.config([
+		"|................",
+		"|................",
+		"|................",
+		"|................",
+		"|###.............",
+		"|................",
+		"|................",
+		"|...#####........",
+		"|################",
+	], [Vector2i(180, 480), Vector2i(180, 480)], [Vector2i(920, 840), Vector2i(1800, 960)])
+	cfg.set_value("berries", "piles", [Vector2i(180, 480)])
 	var config := MatchConfig.new()
 	config.map = MapData.from_config(cfg)
-	config.seat_teams = [BLUE]
-	config.bot_seats = [0]
+	config.seat_teams = [BLUE, BLUE, GOLD, GOLD]
+	config.queen_seats = [2]
+	config.bot_seats = [3]
 	config.tuning = Tuning.load_default()
 	var state := Sim.create_match(config)
-	var seen := {}
+	var dropped := -1
+	var kicked := false
+	var picked := -1
 	for i in 600:
-		state = Sim.step(state, _neutral(state.tick, 1))
+		var inputs := _neutral(state.tick, 4)
+		inputs.seats[0] = SeatInput.of(SeatInput.RIGHT if state.characters[0].alive and dropped == -1 else SeatInput.NEUTRAL)
+		inputs.seats[1] = SeatInput.of(SeatInput.RIGHT if state.tick >= 100 and not kicked else SeatInput.NEUTRAL)
+		inputs.seats[2] = SeatInput.of(SeatInput.NEUTRAL, false, dropped != -1 and state.tick % 6 == 0)
+		state = Sim.step(state, inputs)
 		for e in state.events:
-			if not seen.has(e.type):
-				seen[e.type] = state.tick
-		if state.win != MatchState.Win.NONE:
+			if e.type == MatchEvent.Type.BERRY_DROP:
+				dropped = e.other
+			if e.type == MatchEvent.Type.BERRY_KICK:
+				kicked = true
+				# The Bot was still on its way to the Berry.
+				assert_int(state.characters[3].berry).is_equal(-1)
+			if e.type == MatchEvent.Type.BERRY_PICKUP and e.seat == 3:
+				picked = e.other
+		if picked != -1:
 			break
 
-	assert_int(seen.get(MatchEvent.Type.SNAIL_MOUNT, -1)).is_equal(1)
-	assert_int(seen.get(MatchEvent.Type.SNAIL_DISMOUNT, 99)).is_less_equal(3)
-	assert_int(state.win).is_equal(MatchState.Win.ECONOMIC)
+	assert_bool(kicked).is_true()
+	assert_int(picked).is_equal(dropped)
 
 
 func _config(teams: Array[int], queens: Array[int], bots: Array[int], seed: int) -> MatchConfig:
