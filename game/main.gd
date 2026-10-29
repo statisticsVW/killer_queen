@@ -1,7 +1,8 @@
 extends Node2D
 ## Drives the sim at a fixed 50 ticks/second (the physics tick rate in project
 ## settings) and draws it at the display rate, interpolating between the last
-## two states. Rendering only: no game rules live here.
+## two states, playing each state's sound cues as it steps to it. Rendering and
+## sound only: no game rules live here.
 
 const MAP_PATH := "res://data/maps/day.cfg"
 ## Where dev builds keep the last Match's Replay, under res:// or user://.
@@ -87,9 +88,11 @@ var _recording: Replay
 var _saved := false
 ## The Replay playing back, or null during a live Match.
 var _playback: Replay
+var _sounds := Sounds.new()
 
 
 func _ready() -> void:
+	add_child(_sounds)
 	for device in PADS:
 		_devices.append(Pad.of(device))
 
@@ -117,6 +120,8 @@ func _start(config: MatchConfig) -> void:
 	_paused = false
 	_menu = null
 	_over_ticks = 0
+	_sounds.stop()
+	_play_cues()
 
 
 ## Leaves the Match for the Lobby, where everyone is still at their Seat.
@@ -168,6 +173,7 @@ func _step(inputs: Array[SeatInput]) -> void:
 		_saved = false
 	_current = Sim.step(_current, input)
 	_add_pops()
+	_play_cues()
 	if _playback == null and _current.win != MatchState.Win.NONE:
 		_save_replay()
 
@@ -291,6 +297,12 @@ func _add_pops() -> void:
 		var c := _current.characters[e.seat]
 		var height := t.winged_height if c.is_winged() else t.worker_height
 		_pops.append({"at": _to_pixels(Vector2i(c.x, c.y - height / 2)), "team": c.team, "age": 0})
+
+
+## Plays the current state's sound cues. Like the pops, they start as the sim
+## steps to the state, so they keep to its tick at any step rate.
+func _play_cues() -> void:
+	_sounds.play(Cues.of(_current, Engine.physics_ticks_per_second))
 
 
 ## Esc on a keyboard or Start/Menu on a pad pauses a Match in play, or

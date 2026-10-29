@@ -16,7 +16,7 @@ Layout:
 - `data/tuning.cfg`: every movement and timing constant; the sim has no built-in defaults.
 - `data/maps/`: Map layouts as data (tile rows, wrap edges, object positions); `day.cfg` documents the format.
 - `test/sim/`: gdUnit4 suites that test only through `Sim.create_match` and `Sim.step`.
-- `test/game/`: gdUnit4 suites for presentation logic that has rules of its own (the Lobby), through its public interface.
+- `test/game/`: gdUnit4 suites for presentation logic that has rules of its own (the Lobby, sound cues), through its public interface.
 - `addons/gdUnit4/`: vendored gdUnit4 6.2.2.
 
 ## Agent skills
