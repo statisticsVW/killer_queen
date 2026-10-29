@@ -13,7 +13,12 @@ const MPX_PER_PIXEL := 2000
 const SCREEN_WIDTH := MapData.WIDTH / MPX_PER_PIXEL
 
 const BACKGROUND := Color("8ec8e8")
+## The Day sky darkens toward the top; clouds and far hills sit behind the Map.
+const SKY_TOP := Color("5aa6dc")
+const CLOUD := Color("eef7fc")
+const HILLS := Color("9fcf9a")
 const DIRT := Color("7a5230")
+const DIRT_DARK := Color("5e3e22")
 const GRASS := Color("3f9a2c")
 const WRAP_MARK := Color(1, 1, 1, 0.5)
 const WORKER_WRAP_MARK := Color(1, 0.6, 0.9, 0.7)
@@ -27,7 +32,6 @@ const DOORS := Color("6b4a2a")
 const WINGS := Color("f2f2f2")
 const BOLT := Color("ffe14d")
 const BERRY := Color("a63fc4")
-const SNAIL := Color("e86aa8")
 const CROWN := Color("ffd23f")
 const POP := Color.WHITE
 
@@ -89,6 +93,9 @@ var _saved := false
 ## The Replay playing back, or null during a live Match.
 var _playback: Replay
 var _sounds := Sounds.new()
+var _sprites := Sprites.new()
+## The Snail's textures, by whether it is eating.
+var _snail_textures := {}
 
 
 func _ready() -> void:
@@ -342,6 +349,8 @@ func _draw() -> void:
 		_draw_lobby()
 		return
 	var map := _current.map
+	_draw_sky()
+	_draw_snail_track(map)
 	_draw_hives(map)
 	_draw_tiles(map)
 	_draw_barriers(map)
@@ -357,6 +366,22 @@ func _draw() -> void:
 	_draw_playback()
 
 
+## Placeholder Day sky: bands darkening toward the top, a few clouds and a
+## line of far hills.
+func _draw_sky() -> void:
+	var height := MapData.HEIGHT / MPX_PER_PIXEL
+	for band in 6:
+		draw_rect(Rect2(0, band * 30, SCREEN_WIDTH, 30), SKY_TOP.lerp(BACKGROUND, band / 6.0))
+	for cloud: Vector3 in [Vector3(120, 70, 1.0), Vector3(400, 46, 0.8), Vector3(690, 84, 1.2), Vector3(880, 40, 0.7)]:
+		for puff: Vector3 in [Vector3(0, 0, 14), Vector3(16, -6, 12), Vector3(32, 0, 13), Vector3(14, 6, 12)]:
+			draw_circle(Vector2(cloud.x + puff.x * cloud.z, cloud.y + puff.y * cloud.z), puff.z * cloud.z, CLOUD)
+	var hills := PackedVector2Array([Vector2(0, height)])
+	for x in range(0, SCREEN_WIDTH + 1, 24):
+		hills.append(Vector2(x, height - 120 - 40 * sin(x / 90.0) - 20 * sin(x / 37.0)))
+	hills.append(Vector2(SCREEN_WIDTH, height))
+	draw_colored_polygon(hills, HILLS)
+
+
 func _draw_tiles(map: MapData) -> void:
 	var tile := float(map.tile_size) / MPX_PER_PIXEL
 	for row in map.rows:
@@ -365,8 +390,12 @@ func _draw_tiles(map: MapData) -> void:
 				continue
 			var top_left := Vector2(column, row) * tile
 			draw_rect(Rect2(top_left, Vector2(tile, tile)), DIRT)
+			# A speck of darker earth, placed by the tile so it doesn't flicker.
+			draw_rect(Rect2(top_left + Vector2((column * 7 + row * 3) % 4, 2 + (column + row * 5) % 3), Vector2(1, 1)),
+				DIRT_DARK)
 			if not map.is_solid(column, row - 1):
 				draw_rect(Rect2(top_left, Vector2(tile, 3)), GRASS)
+				draw_rect(Rect2(top_left + Vector2((column * 5) % 5, 3), Vector2(1, 1)), GRASS)
 		# Mark the side edges of rows that wrap.
 		if map.edges[row] != MapData.Edge.BLOCKED:
 			var mark := WRAP_MARK if map.edges[row] == MapData.Edge.WRAP else WORKER_WRAP_MARK
@@ -398,9 +427,12 @@ func _draw_hives(map: MapData) -> void:
 		var bounds := Rect2(_to_pixels(points[0]), Vector2.ZERO)
 		for p in points:
 			bounds = bounds.expand(_to_pixels(p))
-		draw_rect(bounds.grow_individual(22, 32, 22, 0), HIVE_COLOURS[team])
+		var panel := bounds.grow_individual(22, 32, 22, 0)
+		draw_rect(panel, HIVE_COLOURS[team])
+		_draw_honeycomb(panel, HIVE_COLOURS[team].darkened(0.2))
+		draw_rect(panel, HIVE_COLOURS[team].darkened(0.45), false, 2)
 		for hole in map.hive_holes[team]:
-			draw_rect(Rect2(_to_pixels(hole) - Vector2(5, 4), Vector2(10, 8)), HOLE)
+			_draw_hex(_to_pixels(hole), 6, HOLE)
 		for i in _current.eggs[team]:
 			_draw_egg(map.eggs[team][i])
 	# A dead Queen who will hatch shows as the Egg she is hatching from.
@@ -409,8 +441,45 @@ func _draw_hives(map: MapData) -> void:
 			_draw_egg(c.spawn)
 
 
+## A placeholder Egg, 20x29 pixels standing on `at`, with a shine.
 func _draw_egg(at: Vector2i) -> void:
-	draw_rect(Rect2(_to_pixels(at) - Vector2(10, 29), Vector2(20, 29)), EGG)
+	var base := _to_pixels(at)
+	var outline := PackedVector2Array()
+	var inside := PackedVector2Array()
+	for i in 24:
+		var angle := TAU * i / 24
+		# Narrower toward the top.
+		var half := 10.0 * (1.0 - 0.18 * maxf(-sin(angle), 0.0))
+		outline.append(base + Vector2(cos(angle) * half, -14.5 + sin(angle) * 14.5))
+		inside.append(base + Vector2(cos(angle) * (half - 1.5), -14.5 + sin(angle) * 13.0))
+	draw_colored_polygon(outline, EGG.darkened(0.45))
+	draw_colored_polygon(inside, EGG)
+	draw_rect(Rect2(base + Vector2(-5, -22), Vector2(2, 4)), Color.WHITE)
+
+
+## A flat-topped hexagon of `radius` pixels centred on `at`.
+func _draw_hex(at: Vector2, radius: float, colour: Color) -> void:
+	var points := PackedVector2Array()
+	for i in 6:
+		points.append(at + Vector2.from_angle(TAU * i / 6) * radius)
+	draw_colored_polygon(points, colour)
+
+
+## Honeycomb lines across a Hive's panel.
+func _draw_honeycomb(panel: Rect2, colour: Color) -> void:
+	var step := Vector2(15, 17)
+	var row := 0
+	var y := panel.position.y + 8
+	while y < panel.end.y - 4:
+		var x := panel.position.x + 8 + (7.5 if row % 2 == 1 else 0.0)
+		while x < panel.end.x - 4:
+			var points := PackedVector2Array()
+			for i in 7:
+				points.append(Vector2(x, y) + Vector2.from_angle(TAU * i / 6) * 7)
+			draw_polyline(points, colour, 1)
+			x += step.x
+		y += step.y / 2
+		row += 1
 
 
 ## Placeholder Gates: a doorway framed in its owner's Team colour (grey while
@@ -426,22 +495,67 @@ func _draw_objects(map: MapData) -> void:
 		var gate := _current.gates[i]
 		var base := _to_pixels(Vector2i(gate.x, gate.y))
 		var frame: Color = GATE if gate.team == -1 else TEAM_COLOURS[gate.team]
-		draw_rect(Rect2(base - Vector2(14, 26), Vector2(28, 26)), frame)
-		draw_rect(Rect2(base - Vector2(10, 22), Vector2(20, 22)), DOORS if occupied.has(i) else HOLE)
+		var outline := frame.darkened(0.5)
+		# An arched doorway, 28x26: posts and a rounded top in the owner's
+		# colour, its doorway dark or, while a Worker is locked in, shut.
+		draw_rect(Rect2(base - Vector2(14, 20), Vector2(28, 20)), outline)
+		draw_circle(base - Vector2(0, 20), 7, outline)
+		draw_rect(Rect2(base - Vector2(14, 19), Vector2(28, 19)), frame)
+		draw_circle(base - Vector2(0, 19), 6, frame)
+		draw_rect(Rect2(base - Vector2(9, 17), Vector2(18, 17)), DOORS if occupied.has(i) else HOLE)
+		if occupied.has(i):
+			draw_rect(Rect2(base - Vector2(1, 17), Vector2(2, 17)), DOORS.darkened(0.4))
 		if gate.type == GateState.Type.WARRIOR:
-			draw_rect(Rect2(base - Vector2(24, 34), Vector2(48, 6)), WINGS)
+			_draw_wing_sign(base - Vector2(0, 30), outline)
 		else:
-			draw_rect(Rect2(base - Vector2(3, 20), Vector2(6, 16)), BOLT)
+			_draw_bolt_sign(base - Vector2(0, 30), outline)
 	for team in map.snail_goals.size():
-		var goal := _to_pixels(map.snail_goals[team])
-		draw_rect(Rect2(goal - Vector2(26, 30), Vector2(52, 30)), TEAM_COLOURS[team], false, 2)
+		_draw_goal(_to_pixels(map.snail_goals[team]), TEAM_COLOURS[team])
+
+
+## A Warrior Gate's sign: a pair of wings over the doorway.
+func _draw_wing_sign(at: Vector2, outline: Color) -> void:
+	for side in [-1, 1]:
+		var wing := PackedVector2Array([at + Vector2(side * 2, 2), at + Vector2(side * 22, -5),
+			at + Vector2(side * 20, 0), at + Vector2(side * 12, 4)])
+		draw_colored_polygon(wing, WINGS)
+		draw_polyline(wing + PackedVector2Array([wing[0]]), outline, 1)
+
+
+## A Speed Gate's sign: a lightning bolt over the doorway.
+func _draw_bolt_sign(at: Vector2, outline: Color) -> void:
+	var bolt := PackedVector2Array([at + Vector2(2, -9), at + Vector2(-5, 1), at + Vector2(0, 1),
+		at + Vector2(-2, 8), at + Vector2(5, -2), at + Vector2(0, -2)])
+	draw_colored_polygon(bolt, BOLT)
+	draw_polyline(bolt + PackedVector2Array([bolt[0]]), outline, 1)
+
+
+## A Team's Snail Goal: a flag on a pole by the track.
+func _draw_goal(at: Vector2, colour: Color) -> void:
+	draw_rect(Rect2(at + Vector2(-1, -40), Vector2(2, 40)), Color("3a2a1a"))
+	draw_colored_polygon(PackedVector2Array([at + Vector2(1, -40), at + Vector2(18, -34), at + Vector2(1, -28)]),
+		colour)
+
+
+## The Snail's track along the floor between the Snail Goals, with a tick at
+## every tenth of the way and at its start, so its position reads at a glance.
+func _draw_snail_track(map: MapData) -> void:
+	if not map.has_snail:
+		return
+	var from := _to_pixels(map.snail_goals[0])
+	var to := _to_pixels(map.snail_goals[1])
+	var y := from.y - 2
+	draw_line(Vector2(from.x, y), Vector2(to.x, y), Color(1, 1, 1, 0.35), 2)
+	for i in 11:
+		var x := lerpf(from.x, to.x, i / 10.0)
+		draw_rect(Rect2(x - 1, y - 4, 2, 4), Color(1, 1, 1, 0.5))
+	var start := _to_pixels(map.snail_start)
+	draw_rect(Rect2(start.x - 1, y - 8, 2, 8), Color(1, 1, 1, 0.7))
 
 
 func _draw_characters() -> void:
 	var t := _current.tuning
 	var alpha := Engine.get_physics_interpolation_fraction()
-	var worker_size := _to_pixels(Vector2i(t.worker_width, t.worker_height))
-	var winged_size := _to_pixels(Vector2i(t.winged_width, t.winged_height))
 	var humans := _human_labels() if _current.countdown_ticks() > 0 else {}
 	for i in _current.characters.size():
 		var now := _current.characters[i]
@@ -456,14 +570,14 @@ func _draw_characters() -> void:
 		# Interpolate across a wrap the short way round, not across the screen.
 		if absf(now_feet.x - before_feet.x) > SCREEN_WIDTH / 2.0:
 			before_feet.x += SCREEN_WIDTH * signf(now_feet.x - before_feet.x)
-		var feet := before_feet.lerp(now_feet, alpha)
+		var feet := before_feet.lerp(now_feet, alpha).round()
+		var sprite := _sprites.texture(Pose.of(_current, i), TEAM_COLOURS[now.team], _place(i))
 		# Draw a copy one screen width each side so a character straddling a
 		# wrap edge shows on both sides.
-		var size := winged_size if now.is_winged() else worker_size
 		for offset in [-SCREEN_WIDTH, 0, SCREEN_WIDTH]:
-			_draw_character(feet + Vector2(offset, 0), size, now)
+			_draw_sprite(sprite, feet + Vector2(offset, 0), now.facing)
 		if humans.has(i):
-			_draw_highlight(feet, size, humans[i])
+			_draw_highlight(feet, sprite.get_size(), humans[i])
 
 
 ## The label of each Seat a connected device drives, by Seat.
@@ -487,9 +601,9 @@ func _draw_highlight(feet: Vector2, size: Vector2, label: String) -> void:
 	draw_string(font, tip + Vector2(-40, -10), label, HORIZONTAL_ALIGNMENT_CENTER, 80, 10, Color.WHITE)
 
 
-## Placeholder Snail: a pink box at its state position, with an eye on the
-## side it's heading (toward its rider's Snail Goal) and its mouth open,
-## darker, while it eats.
+## The Snail at its state position, its collider's size, facing the way its
+## rider is heading (toward their Snail Goal) or, unridden, the middle of the
+## Map, its mouth open while it eats.
 func _draw_snail() -> void:
 	var s := _current.snail
 	if s == null:
@@ -497,31 +611,46 @@ func _draw_snail() -> void:
 	var t := _current.tuning
 	var before_x := _previous.snail.x if _previous.snail != null else s.x
 	var x := lerpf(before_x, s.x, Engine.get_physics_interpolation_fraction())
-	var size := _to_pixels(Vector2i(t.snail_width, t.snail_height))
-	var feet := Vector2(x / MPX_PER_PIXEL, float(s.y) / MPX_PER_PIXEL)
-	var body := Rect2(feet - Vector2(size.x / 2, size.y), size)
-	draw_rect(body, SNAIL.darkened(0.3) if s.victim != -1 else SNAIL)
-	if s.rider != -1:
-		var heading := _current.characters[s.rider].facing
-		var eye := Vector2(body.get_center().x + heading * size.x / 3, body.position.y + 6)
-		draw_rect(Rect2(eye.round(), Vector2(3, 3)), Color.WHITE)
+	var eating := s.victim != -1
+	if not _snail_textures.has(eating):
+		var size := Vector2i(t.snail_width, t.snail_height) / MPX_PER_PIXEL
+		_snail_textures[eating] = ImageTexture.create_from_image(Sprites.snail_image(size, eating))
+	var facing := _current.characters[s.rider].facing if s.rider != -1 \
+		else (SeatInput.RIGHT if s.x < MapData.WIDTH / 2 else SeatInput.LEFT)
+	_draw_sprite(_snail_textures[eating], Vector2(x / MPX_PER_PIXEL, float(s.y) / MPX_PER_PIXEL).round(), facing)
 
 
-## Placeholder: a Team-coloured collider box with an eye on its facing side.
-## Winged characters get a wing stripe, Queens a crown, and Speed characters a
-## yellow belt.
-func _draw_character(feet: Vector2, size: Vector2, c: CharacterState) -> void:
-	var body := Rect2(feet - Vector2(size.x / 2, size.y), size).abs()
-	var top_left := body.position.round()
-	draw_rect(Rect2(top_left, body.size), TEAM_COLOURS[c.team])
-	var eye_x := body.get_center().x + c.facing * size.x / 4 - 1
-	draw_rect(Rect2(Vector2(eye_x, body.position.y + 4).round(), Vector2(2, 2)), Color.WHITE)
-	if c.speed:
-		draw_rect(Rect2(top_left + Vector2(0, body.size.y - 6), Vector2(body.size.x, 2)), BOLT)
-	if c.is_winged():
-		draw_rect(Rect2(top_left + Vector2(-3, 10), Vector2(size.x + 6, 3)), WINGS)
-	if c.role == CharacterState.Role.QUEEN:
-		draw_rect(Rect2(top_left + Vector2(4, -4), Vector2(size.x - 8, 4)), CROWN)
+## Draws a sprite (drawn facing right) standing on `feet`, mirrored when
+## `facing` is left.
+func _draw_sprite(sprite: Texture2D, feet: Vector2, facing: int) -> void:
+	var size := sprite.get_size()
+	var mirrored := facing == SeatInput.LEFT
+	draw_set_transform(feet, 0, Vector2(-1 if mirrored else 1, 1))
+	draw_texture(sprite, Vector2(-size.x / 2, -size.y))
+	draw_set_transform(Vector2.ZERO)
+
+
+## Where Seat `seat` stands among its Team's Workers, from 1, for its
+## marking; 0 for a Queen.
+func _place(seat: int) -> int:
+	var team := _current.characters[seat].team
+	if seat in _queen_seats():
+		return 0
+	var place := 1
+	for c in _current.characters:
+		if c.seat < seat and c.team == team and not c.seat in _queen_seats():
+			place += 1
+	return place
+
+
+## The Queens' Seats. A Queen is always a Queen, and a Warrior keeps its
+## Worker Seat's marking.
+func _queen_seats() -> Array[int]:
+	var seats: Array[int] = []
+	for c in _current.characters:
+		if c.role == CharacterState.Role.QUEEN:
+			seats.append(c.seat)
+	return seats
 
 
 ## Placeholder Berries: purple orbs, in piles, loose, on carriers' heads and
@@ -541,7 +670,10 @@ func _draw_berries() -> void:
 		var before_at := _to_pixels(Vector2i(before.x, before.y))
 		if absf(now_at.x - before_at.x) > SCREEN_WIDTH / 2.0:
 			before_at = now_at
-		draw_circle(before_at.lerp(now_at, alpha) - Vector2(0, radius), radius, BERRY)
+		var centre := before_at.lerp(now_at, alpha) - Vector2(0, radius)
+		draw_circle(centre, radius + 0.5, BERRY.darkened(0.5))
+		draw_circle(centre, radius - 0.5, BERRY)
+		draw_rect(Rect2((centre + Vector2(-radius / 2, -radius / 2)).round(), Vector2(1, 1)), Color.WHITE)
 
 
 ## Placeholder kill pop: a burst in the dead character's Team colour inside a
