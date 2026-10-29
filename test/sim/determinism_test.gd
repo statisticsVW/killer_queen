@@ -174,6 +174,42 @@ func test_a_replay_keeps_only_human_input_and_reproduces_a_match_with_bots() -> 
 	assert_str(played.fingerprint()).is_equal(state.fingerprint())
 
 
+func test_a_replay_keeps_tuning_changes_made_mid_match_and_reproduces_it() -> void:
+	# The Queens are human, the rest Bots, whose navigation the changes rebuild.
+	var bots: Array[int] = [1, 2, 3, 4, 6, 7, 8, 9]
+	var config := _bot_config(57, bots)
+	var state := Sim.create_match(config)
+	var replay := Replay.record(config)
+	var changes := {
+		200: {"worker_max_speed": 7000, "worker_gravity": 900},
+		450: {"winged_flap_impulse": config.tuning.winged_flap_impulse / 2},
+	}
+	for tick in BOT_TICKS / 2:
+		var input := _scripted_input(state)
+		if changes.has(tick):
+			input.tuning = state.tuning.with_values(changes[tick])
+		replay.add(input)
+		state = Sim.step(state, input)
+
+	var loaded := Replay.from_text(replay.to_text())
+	assert_object(loaded.input(199).tuning).is_null()
+	assert_int(loaded.input(200).tuning.worker_gravity).is_equal(900)
+	assert_object(loaded.input(201).tuning).is_null()
+	var played := Sim.create_match(loaded.config())
+	var unchanged := Sim.create_match(loaded.config())
+	for tick in loaded.length():
+		var input := loaded.input(tick)
+		played = Sim.step(played, input)
+		input.tuning = null
+		unchanged = Sim.step(unchanged, input)
+
+	assert_str(played.fingerprint()).is_equal(state.fingerprint())
+	assert_dict(played.tuning.values()).is_equal(state.tuning.values())
+	assert_int(played.tuning.worker_max_speed).is_equal(7000)
+	# The changes mattered: without them the Match goes differently.
+	assert_str(unchanged.fingerprint()).is_not_equal(state.fingerprint())
+
+
 func test_a_replay_of_an_all_bot_match_keeps_its_length() -> void:
 	var config := _bot_config(3, ALL_SEATS)
 	var state := Sim.create_match(config)

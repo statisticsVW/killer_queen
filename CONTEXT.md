@@ -57,7 +57,7 @@ A part of the Map that is solid only during the Countdown. On Day they are rope 
 _Avoid_: Gate (a different thing), wall
 
 **Replay**:
-The recorded input stream of a Match, from which the whole Match can be reproduced exactly.
+The recorded input stream of a Match, from which the whole Match can be reproduced exactly. In dev builds it includes every tuning change made mid-Match with the live editor, which is part of the input.
 _Avoid_: Recording, video
 
 ### Objectives

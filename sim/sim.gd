@@ -75,7 +75,8 @@ static func _pile_slots(map: MapData, t: Tuning) -> Array[Vector2i]:
 
 ## Returns the state one tick after `state`. `input` must be tagged with
 ## state.tick, the tick it applies to; a Bot Seat plays its Bot's input
-## instead of the one `input` holds for it. During the countdown that starts the
+## instead of the one `input` holds for it. A tuning table in `input` is the
+## Match's from this tick on. During the countdown that starts the
 ## Match (MatchState.countdown_ticks), the Map's starting barriers are solid.
 ## Once a Team has won, the Match is over: stepping it changes nothing but the
 ## tick.
@@ -85,6 +86,10 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 	next.tick += 1
 	next.events = []
 	next.inputs = input.seats.duplicate()
+	if input.tuning != null:
+		next.tuning = input.tuning
+		# Bots' navigation was built from the old tuning; earlier states keep it.
+		next.navs = {}
 	if next.win != MatchState.Win.NONE:
 		return next
 	next.seen = [state.characters] + state.seen.slice(0, Bot.memory_ticks(next.tuning) - 1)

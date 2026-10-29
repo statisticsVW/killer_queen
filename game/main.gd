@@ -48,6 +48,12 @@ const PADS := 8
 const VICTORY_MENU_DELAY := 50
 ## How long "GO!" shows once the countdown ends, in physics ticks.
 const GO_TICKS := 50
+## The dev overlay's colour for colliders other than characters', and how many
+## ticks of movement a velocity line spans.
+const OVERLAY_OBJECT := Color(1, 1, 1, 0.8)
+const VELOCITY_TICKS := 4
+## Constants the live tuning editor's panel lists at once.
+const EDITOR_ROWS := 24
 const ROPE := Color("8d6710")
 const ROPE_LIGHT := Color("c79f2d")
 
@@ -94,6 +100,12 @@ var _saved := false
 var _playback: Replay
 var _sounds := Sounds.new()
 var _sprites := Sprites.new()
+## The overlay, frame-step and slow motion, and the live tuning editor; inert
+## outside dev builds.
+var _dev := DevTools.of(OS.is_debug_build())
+var _editor := TuningEditor.of(OS.is_debug_build())
+## The tuning file's values, which the editor marks edited constants against.
+var _file_tuning: Tuning
 ## The Snail's textures, by whether it is eating.
 var _snail_textures := {}
 
@@ -121,6 +133,9 @@ func _start_live_match() -> void:
 
 func _start(config: MatchConfig) -> void:
 	_screen = Screen.MATCH
+	# Edits not yet applied belong to the Match before.
+	_editor.take()
+	_file_tuning = Tuning.load_default()
 	_current = Sim.create_match(config)
 	_previous = _current
 	_pops = []
@@ -144,7 +159,8 @@ func _to_lobby() -> void:
 
 ## Each tick: read every device, then run the Lobby, or step the Match or,
 ## while a menu is up, let the devices choose from it. The Match stands still
-## while paused and once it is won.
+## while paused and once it is won. In dev builds, frame-step and slow motion
+## step it on only some ticks.
 func _physics_process(_delta: float) -> void:
 	var inputs := _read_devices()
 	_age_pops()
@@ -155,13 +171,16 @@ func _physics_process(_delta: float) -> void:
 		if _lobby.update(inputs, connected):
 			_start_live_match()
 	elif _screen == Screen.MATCH:
-		_previous = _current
 		if _current.win != MatchState.Win.NONE:
+			_previous = _current
 			_over_ticks += 1
 			if _over_ticks == VICTORY_MENU_DELAY:
 				_menu = Menu.of([REMATCH, LOBBY])
-		elif not _paused:
+		elif not _paused and _dev.tick():
+			_previous = _current
 			_step(inputs)
+		elif _paused or _dev.frozen:
+			_previous = _current
 	if _menu != null:
 		var chosen := _menu.update(inputs)
 		if chosen != -1:
@@ -176,6 +195,12 @@ func _step(inputs: Array[SeatInput]) -> void:
 		input = _playback.input(_current.tick)
 	else:
 		input = _tick_input(inputs)
+	# The live editor's edits apply from this tick, over any the Replay made at
+	# it, and are recorded with the rest of the input.
+	var edited := _editor.take()
+	if edited != null:
+		input.tuning = edited
+	if _playback == null:
 		_recording.add(input)
 		_saved = false
 	_current = Sim.step(_current, input)
@@ -288,6 +313,23 @@ func _notification(what: int) -> void:
 		_save_replay()
 
 
+## Dev builds, running from the project: writes the Match's tuning, edits
+## included, into the tuning file, keeping its comments, so the next Match
+## starts with it.
+func _save_tuning() -> void:
+	if not OS.has_feature("editor"):
+		push_warning("The tuning file can only be saved when running from the project")
+		return
+	var text := FileAccess.get_file_as_string(Tuning.DEFAULT_PATH)
+	var file := FileAccess.open(Tuning.DEFAULT_PATH, FileAccess.WRITE)
+	if file == null:
+		push_warning("Could not save the tuning file %s" % Tuning.DEFAULT_PATH)
+		return
+	file.store_string(TuningEditor.rewrite(text, _editor.shown(_current.tuning)))
+	file.close()
+	_file_tuning = Tuning.load_default()
+
+
 ## Ages the kill pops. They keep playing out while the Match stands still.
 func _age_pops() -> void:
 	for pop in _pops:
@@ -328,12 +370,22 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 ## Dev builds only. F9 plays back the last Match's Replay; F8 starts a new live
-## Match with the Lobby's Seats as they are.
+## Match with the Lobby's Seats as they are; DevTools and, in a Match,
+## TuningEditor have the rest. Held, the editor's plus and minus repeat.
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
-	if not OS.is_debug_build() or not key.pressed or key.echo:
+	if not OS.is_debug_build() or not key.pressed:
 		return
-	if key.physical_keycode == KEY_F9:
+	var in_match := _screen == Screen.MATCH
+	if in_match and _editor.open and key.physical_keycode == TuningEditor.SAVE_KEY and not key.echo:
+		_save_tuning()
+	elif in_match and _editor.key(key.physical_keycode, key.shift_pressed, _current.tuning):
+		get_viewport().set_input_as_handled()
+	elif key.echo:
+		return
+	elif _dev.key(key.physical_keycode):
+		get_viewport().set_input_as_handled()
+	elif key.physical_keycode == KEY_F9:
 		_play_last_replay()
 	elif key.physical_keycode == KEY_F8:
 		_start_live_match()
@@ -364,6 +416,9 @@ func _draw() -> void:
 	_draw_victory()
 	_draw_pause()
 	_draw_playback()
+	_draw_overlay()
+	_draw_dev_status()
+	_draw_tuning_editor()
 
 
 ## Placeholder Day sky: bands darkening toward the top, a few clouds and a
@@ -555,22 +610,12 @@ func _draw_snail_track(map: MapData) -> void:
 
 func _draw_characters() -> void:
 	var t := _current.tuning
-	var alpha := Engine.get_physics_interpolation_fraction()
 	var humans := _human_labels() if _current.countdown_ticks() > 0 else {}
 	for i in _current.characters.size():
 		var now := _current.characters[i]
 		if not now.alive or now.is_locked_in(t) or (now.invulnerable_ticks / BLINK_TICKS) % 2 == 1:
 			continue
-		var before := _previous.characters[i]
-		# Don't slide across the screen from where a respawned character died.
-		if not before.alive:
-			before = now
-		var now_feet := _to_pixels(Vector2i(now.x, now.y))
-		var before_feet := _to_pixels(Vector2i(before.x, before.y))
-		# Interpolate across a wrap the short way round, not across the screen.
-		if absf(now_feet.x - before_feet.x) > SCREEN_WIDTH / 2.0:
-			before_feet.x += SCREEN_WIDTH * signf(now_feet.x - before_feet.x)
-		var feet := before_feet.lerp(now_feet, alpha).round()
+		var feet := _feet(i)
 		var sprite := _sprites.texture(Pose.of(_current, i), TEAM_COLOURS[now.team], _place(i))
 		# Draw a copy one screen width each side so a character straddling a
 		# wrap edge shows on both sides.
@@ -578,6 +623,28 @@ func _draw_characters() -> void:
 			_draw_sprite(sprite, feet + Vector2(offset, 0), now.facing)
 		if humans.has(i):
 			_draw_highlight(feet, sprite.get_size(), humans[i])
+
+
+## Where Seat `i`'s character's feet are drawn, in logical pixels: part-way
+## from its last state to its current one.
+func _feet(i: int) -> Vector2:
+	var now := _current.characters[i]
+	var before := _previous.characters[i]
+	# Don't slide across the screen from where a respawned character died.
+	if not before.alive:
+		before = now
+	var now_feet := _to_pixels(Vector2i(now.x, now.y))
+	var before_feet := _to_pixels(Vector2i(before.x, before.y))
+	# Interpolate across a wrap the short way round, not across the screen.
+	if absf(now_feet.x - before_feet.x) > SCREEN_WIDTH / 2.0:
+		before_feet.x += SCREEN_WIDTH * signf(now_feet.x - before_feet.x)
+	return before_feet.lerp(now_feet, _fraction()).round()
+
+
+## How far from the last state to the current one to draw: Godot's physics
+## interpolation fraction, unless frame-step or slow motion pace the sim.
+func _fraction() -> float:
+	return _dev.fraction(Engine.get_physics_interpolation_fraction())
 
 
 ## The label of each Seat a connected device drives, by Seat.
@@ -609,8 +676,7 @@ func _draw_snail() -> void:
 	if s == null:
 		return
 	var t := _current.tuning
-	var before_x := _previous.snail.x if _previous.snail != null else s.x
-	var x := lerpf(before_x, s.x, Engine.get_physics_interpolation_fraction())
+	var x := _snail_x()
 	var eating := s.victim != -1
 	if not _snail_textures.has(eating):
 		var size := Vector2i(t.snail_width, t.snail_height) / MPX_PER_PIXEL
@@ -618,6 +684,14 @@ func _draw_snail() -> void:
 	var facing := _current.characters[s.rider].facing if s.rider != -1 \
 		else (SeatInput.RIGHT if s.x < MapData.WIDTH / 2 else SeatInput.LEFT)
 	_draw_sprite(_snail_textures[eating], Vector2(x / MPX_PER_PIXEL, float(s.y) / MPX_PER_PIXEL).round(), facing)
+
+
+## Where the Snail is drawn across the Map, in milli-pixels: part-way from its
+## last state to its current one.
+func _snail_x() -> float:
+	var s := _current.snail
+	var before_x := _previous.snail.x if _previous.snail != null else s.x
+	return lerpf(before_x, s.x, _fraction())
 
 
 ## Draws a sprite (drawn facing right) standing on `feet`, mirrored when
@@ -656,24 +730,29 @@ func _queen_seats() -> Array[int]:
 ## Placeholder Berries: purple orbs, in piles, loose, on carriers' heads and
 ## in Hive holes. Moving ones interpolate like characters.
 func _draw_berries() -> void:
-	var alpha := Engine.get_physics_interpolation_fraction()
 	var radius := float(_current.tuning.berry_size) / MPX_PER_PIXEL / 2
 	for i in _current.berries.size():
-		var now := _current.berries[i]
-		if now.where == BerryState.Where.SPENT:
+		if _current.berries[i].where == BerryState.Where.SPENT:
 			continue
-		# Famine's end can add Berries the previous state didn't have.
-		var before := _previous.berries[i] if i < _previous.berries.size() else now
-		if before.where != now.where and now.where != BerryState.Where.CARRIED:
-			before = now
-		var now_at := _to_pixels(Vector2i(now.x, now.y))
-		var before_at := _to_pixels(Vector2i(before.x, before.y))
-		if absf(now_at.x - before_at.x) > SCREEN_WIDTH / 2.0:
-			before_at = now_at
-		var centre := before_at.lerp(now_at, alpha) - Vector2(0, radius)
+		var centre := _berry_at(i) - Vector2(0, radius)
 		draw_circle(centre, radius + 0.5, BERRY.darkened(0.5))
 		draw_circle(centre, radius - 0.5, BERRY)
 		draw_rect(Rect2((centre + Vector2(-radius / 2, -radius / 2)).round(), Vector2(1, 1)), Color.WHITE)
+
+
+## Where Berry `i`'s bottom is drawn, in logical pixels: part-way from its last
+## state to its current one while it moves.
+func _berry_at(i: int) -> Vector2:
+	var now := _current.berries[i]
+	# Famine's end can add Berries the previous state didn't have.
+	var before := _previous.berries[i] if i < _previous.berries.size() else now
+	if before.where != now.where and now.where != BerryState.Where.CARRIED:
+		before = now
+	var now_at := _to_pixels(Vector2i(now.x, now.y))
+	var before_at := _to_pixels(Vector2i(before.x, before.y))
+	if absf(now_at.x - before_at.x) > SCREEN_WIDTH / 2.0:
+		before_at = now_at
+	return before_at.lerp(now_at, _fraction())
 
 
 ## Placeholder kill pop: a burst in the dead character's Team colour inside a
@@ -805,6 +884,97 @@ func _draw_playback() -> void:
 	if _current.tick >= _playback.length():
 		text += "  (over: F9 again, F8 live)"
 	draw_string(ThemeDB.fallback_font, Vector2(8, 22), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
+
+
+## Dev builds, with the overlay on: every collider as the sim sees it (the
+## Gates', the Snail's, the Berries' and each living character's, where they
+## are drawn), and each character's velocity as a line and in arcade pixels a
+## tick.
+func _draw_overlay() -> void:
+	if not _dev.overlay:
+		return
+	var t := _current.tuning
+	for g in _current.gates:
+		_draw_box(_to_pixels(Vector2i(g.x, g.y)), Vector2i(t.gate_width, t.gate_height), OVERLAY_OBJECT)
+	if _current.snail != null:
+		var snail_feet := Vector2(_snail_x(), _current.snail.y) / MPX_PER_PIXEL
+		_draw_box(snail_feet, Vector2i(t.snail_width, t.snail_height), OVERLAY_OBJECT)
+	for i in _current.berries.size():
+		if _current.berries[i].where != BerryState.Where.SPENT:
+			_draw_box(_berry_at(i), Vector2i(t.berry_size, t.berry_size), OVERLAY_OBJECT)
+	var font := ThemeDB.fallback_font
+	for i in _current.characters.size():
+		var c := _current.characters[i]
+		if not c.alive:
+			continue
+		var feet := _feet(i)
+		var size := Vector2i(t.winged_width, t.winged_height) if c.is_winged() \
+			else Vector2i(t.worker_width, t.worker_height)
+		var colour: Color = TEAM_COLOURS[c.team].lightened(0.6)
+		_draw_box(feet, size, colour)
+		var centre := feet - Vector2(0, float(size.y) / MPX_PER_PIXEL / 2)
+		draw_line(centre, centre + Vector2(c.vx, c.vy) / MPX_PER_PIXEL * VELOCITY_TICKS, colour, 1)
+		var text := "%.1f, %.1f" % [c.vx / 1000.0, c.vy / 1000.0]
+		draw_string_outline(font, feet + Vector2(-30, 10), text, HORIZONTAL_ALIGNMENT_CENTER, 60, 8, 2, Color.BLACK)
+		draw_string(font, feet + Vector2(-30, 10), text, HORIZONTAL_ALIGNMENT_CENTER, 60, 8, colour)
+	var keys := "F1 overlay  F2 freeze/run  F3 step  F4 slow motion  F5 tuning  F8 live  F9 Replay"
+	draw_string_outline(font, Vector2(8, 532), keys, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, 2, Color.BLACK)
+	draw_string(font, Vector2(8, 532), keys, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color.WHITE)
+
+
+## Outlines a collider `size` milli-pixels across, standing on `feet`.
+func _draw_box(feet: Vector2, size: Vector2i, colour: Color) -> void:
+	var pixels := Vector2(size) / MPX_PER_PIXEL
+	draw_rect(Rect2(feet - Vector2(pixels.x / 2, pixels.y), pixels), colour, false, 1)
+
+
+## Dev builds, at the top right: the tick while the overlay is on, and how the
+## sim is paced while it is frozen or slowed.
+func _draw_dev_status() -> void:
+	var parts: Array[String] = []
+	if _dev.overlay:
+		parts.append("TICK %d" % _current.tick)
+	if _dev.frozen:
+		parts.append("FROZEN")
+	elif _dev.divisor > 1:
+		parts.append("1/%d SPEED" % _dev.divisor)
+	if parts.is_empty():
+		return
+	var font := ThemeDB.fallback_font
+	var text := "  ".join(parts)
+	draw_string_outline(font, Vector2(0, 22), text, HORIZONTAL_ALIGNMENT_RIGHT, SCREEN_WIDTH - 8, 16, 3, Color.BLACK)
+	draw_string(font, Vector2(0, 22), text, HORIZONTAL_ALIGNMENT_RIGHT, SCREEN_WIDTH - 8, 16, Color.WHITE)
+
+
+## Dev builds, while the live tuning editor is open: a panel at the right of
+## the constants around the picked one, with their values as the next tick
+## will have them. A * marks a value that differs from the tuning file's.
+func _draw_tuning_editor() -> void:
+	if not _editor.open:
+		return
+	var tuning := _editor.shown(_current.tuning)
+	var names := tuning.names()
+	var font := ThemeDB.fallback_font
+	var panel := Rect2(SCREEN_WIDTH - 300, 32, 292, 40 + EDITOR_ROWS * 14)
+	draw_rect(panel, Color(0, 0, 0, 0.75))
+	draw_string(font, panel.position + Vector2(8, 16), "TUNING  PgUp/PgDn pick  -/+ change (Shift x10)",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color.WHITE)
+	draw_string(font, panel.position + Vector2(8, 30), "F6 save to tuning.cfg  F5 close",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color.WHITE)
+	var first := clampi(_editor.selected - EDITOR_ROWS / 2, 0, names.size() - EDITOR_ROWS)
+	for row in EDITOR_ROWS:
+		var i := first + row
+		var y := panel.position.y + 48 + row * 14
+		var picked := i == _editor.selected
+		if picked:
+			draw_rect(Rect2(panel.position.x + 4, y - 11, panel.size.x - 8, 14), Color(1, 1, 1, 0.25))
+		var value: int = tuning.get(names[i])
+		var edited: bool = value != _file_tuning.get(names[i])
+		var colour := CROWN if edited else Color.WHITE
+		draw_string(font, Vector2(panel.position.x + 8, y), ("* " if edited else "  ") + names[i],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, colour)
+		draw_string(font, Vector2(panel.position.x + 8, y), str(value), HORIZONTAL_ALIGNMENT_RIGHT,
+			panel.size.x - 16, 11, colour)
 
 
 func _to_pixels(mpx: Vector2i) -> Vector2:

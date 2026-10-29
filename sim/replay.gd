@@ -2,11 +2,11 @@ class_name Replay
 extends RefCounted
 ## A Match's Replay: everything Sim.create_match was given (the Map's file,
 ## Seats, Bot Seats and Difficulties, seed and the whole tuning table) plus
-## every tick's input for the human Seats, from which the Match can be
-## reproduced exactly (ADR-0002). Bot Seats' input isn't kept: the sim makes it
-## again.
+## every tick's input for the human Seats and every tuning change made
+## mid-Match, from which the Match can be reproduced exactly (ADR-0002). Bot
+## Seats' input isn't kept: the sim makes it again.
 
-const _VERSION := 7
+const _VERSION := 8
 
 var _map_source: String
 var _seat_teams: Array[int]
@@ -21,6 +21,8 @@ var _tuning: Dictionary
 var _length: int
 ## One byte per human Seat per tick, in tick then Seat order (see _encode).
 var _seat_codes := PackedByteArray()
+## The whole tuning table of each tick whose input changed it, by tick.
+var _tuning_changes := {}
 
 
 ## An empty Replay of the Match `config` creates. add() each tick's input.
@@ -45,6 +47,8 @@ func add(input: TickInput) -> void:
 	for seat in input.seats.size():
 		if not seat in _bot_seats:
 			_seat_codes.append(_encode(input.seats[seat]))
+	if input.tuning != null:
+		_tuning_changes[input.tick] = input.tuning.values()
 	_length += 1
 
 
@@ -71,7 +75,8 @@ func config() -> MatchConfig:
 	return config
 
 
-## The input recorded for `tick`, neutral for Bot Seats.
+## The input recorded for `tick`, neutral for Bot Seats, with any tuning
+## change made at it.
 func input(tick: int) -> TickInput:
 	var seats: Array[SeatInput] = []
 	var code := tick * (_seat_teams.size() - _bot_seats.size())
@@ -81,7 +86,10 @@ func input(tick: int) -> TickInput:
 		else:
 			seats.append(_decode(_seat_codes[code]))
 			code += 1
-	return TickInput.of(tick, seats)
+	var input := TickInput.of(tick, seats)
+	if _tuning_changes.has(tick):
+		input.tuning = Tuning.from_values(_tuning_changes[tick])
+	return input
 
 
 func to_text() -> String:
@@ -98,6 +106,7 @@ func to_text() -> String:
 		"tuning": _tuning,
 		"length": _length,
 		"seat_codes": _seat_codes,
+		"tuning_changes": _tuning_changes,
 	})
 
 
@@ -116,6 +125,7 @@ static func from_text(text: String) -> Replay:
 	replay._tuning = data.tuning
 	replay._length = data.length
 	replay._seat_codes = data.seat_codes
+	replay._tuning_changes = data.tuning_changes
 	return replay
 
 
