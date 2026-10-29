@@ -86,7 +86,7 @@ func test_a_cue_plays_once_a_tick_however_often_its_moment_happened() -> void:
 	assert_array(_cues(deaths)).is_equal([Cue.KILL, Cue.QUEEN_DEATH, Cue.BERRY_PICKUP])
 
 
-func test_the_countdown_beeps_on_each_whole_second_then_plays_go_once() -> void:
+func test_the_countdown_beeps_on_its_last_three_whole_seconds_then_plays_go_once() -> void:
 	var countdown := _state(0, []).tuning.match_countdown_ticks
 	var heard := {}
 	for tick in countdown + 3 * TICKS_PER_SECOND:
@@ -94,19 +94,20 @@ func test_the_countdown_beeps_on_each_whole_second_then_plays_go_once() -> void:
 		if not cues.is_empty():
 			heard[tick] = cues.map(func(cue: Cue) -> String: return Cue.keys()[cue])
 	var expected := {}
-	for second in countdown / TICKS_PER_SECOND:
-		expected[second * TICKS_PER_SECOND] = ["COUNTDOWN"]
+	for left in [3, 2, 1]:
+		expected[countdown - left * TICKS_PER_SECOND] = ["COUNTDOWN"]
 	expected[countdown] = ["GO"]
 	assert_dict(heard).is_equal(expected)
 
 
 func test_the_countdown_follows_the_tick_rate_it_is_shown_at() -> void:
+	var countdown := _state(0, []).tuning.match_countdown_ticks
 	var heard: Array[int] = []
-	for tick in 200:
+	for tick in countdown:
 		if Cues.of(_state(tick, []), 30).has(Cue.COUNTDOWN):
 			heard.append(tick)
-	# 150 ticks at 30 a second: 5 s, beeping at 5, 4, 3, 2 and 1 left.
-	assert_array(heard).is_equal([0, 30, 60, 90, 120])
+	# At 30 ticks a second, 3, 2 and 1 seconds left are 90, 60 and 30 ticks.
+	assert_array(heard).is_equal([countdown - 90, countdown - 60, countdown - 30])
 
 
 ## The cues of a state just after the countdown with `events` as its tick's.

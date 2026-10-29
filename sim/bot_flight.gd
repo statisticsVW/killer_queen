@@ -93,7 +93,10 @@ static func toward(state: MatchState, c: CharacterState, x: int, y: int, dive :=
 
 
 ## Where to head for, from (x, y) to (to_x, to_y): a cell a few steps along
-## the way, or the target itself once that near or if it can't be reached.
+## the way, or the target itself once that near or if it can't be reached. A
+## cell straight above or below the flyer's own whose centre is on the far side
+## of the flyer from the target keeps the flyer's x, so it doesn't steer away
+## from the target toward that centre.
 func _aim(x: int, y: int, to_x: int, to_y: int) -> Vector2i:
 	var from := _open_cell_near(x, y)
 	var to := _open_cell_near(to_x, to_y)
@@ -107,7 +110,11 @@ func _aim(x: int, y: int, to_x: int, to_y: int) -> Vector2i:
 		cell = _nearer(cell, field)
 		if cell == to:
 			return Vector2i(to_x, to_y)
-	return Vector2i((cell % columns) * CELL + CELL / 2, (cell / columns) * CELL + CELL / 2)
+	var aim_x := (cell % columns) * CELL + CELL / 2
+	if cell % columns == from % columns \
+			and signi(Sim._wrapped_dx(x, aim_x)) != signi(Sim._wrapped_dx(x, to_x)):
+		aim_x = x
+	return Vector2i(aim_x, (cell / columns) * CELL + CELL / 2)
 
 
 ## The open cell (x, y) is in, or else the nearest open one around it, looking

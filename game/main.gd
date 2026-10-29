@@ -764,11 +764,12 @@ func _draw_pops() -> void:
 		draw_arc(pop.at, 6.0 + 22.0 * grown, 0.0, TAU, 24, POP, 2.0)
 
 
-## The countdown's seconds left over the middle of the Map, then "GO!".
+## The countdown's last Cues.COUNTED_SECONDS seconds over the middle of the
+## Map, then "GO!".
 func _draw_countdown() -> void:
 	var left := _current.countdown_ticks()
 	var text := ""
-	if left > 0:
+	if left > 0 and left <= Cues.COUNTED_SECONDS * Engine.physics_ticks_per_second:
 		text = str(ceili(float(left) / Engine.physics_ticks_per_second))
 	elif _current.tick < _current.tuning.match_countdown_ticks + GO_TICKS:
 		text = "GO!"

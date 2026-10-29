@@ -20,7 +20,7 @@ Any one of the three immediately ends the match (Economic has a small nuance, be
 - Each team has **3 eggs**; one hatches into the Queen at match start; each Queen death hatches the next egg; when no eggs remain, the next kill wins. [S1][S8][S20]
 - The eggs physically sit at/around the team's hive and are the on-screen indicator of remaining Queen lives. [S8][S20]
 - Only Queens and Warriors can kill a Queen. [S1][S8]
-- Queen respawn: she hatches from the next egg at the hive; respawn is described as "shortly after" dying. **Exact delay unknown.** [S2][S20]
+- Queen respawn: she hatches from the next egg at the hive; respawn is described as "shortly after" dying [S2][S20]; measured at 2.4 s from death to hatching (§3.1).
 - Egg/lives progress is permanent (cannot be regained). [S22]
 
 ### 1.2 Economic victory
@@ -74,7 +74,7 @@ Any one of the three immediately ends the match (Economic has a small nuance, be
 
 ### 2.2 Worker (Drone)
 - Only unit that can carry berries, ride the snail, or use gates. Cannot kill. [S1][S9]
-- Infinite lives; respawns at the hive. **Respawn delay not documented.** [S1]
+- Infinite lives; respawns at the hive [S1], 2.77 s after dying (measured, §3.1).
 - Dies on contact with an enemy Queen's or Warrior's sword (any angle; see §2.5). [S8]
 - A carried berry drops where the Worker dies and becomes a loose, collidable, kickable object. [S8][S23][S10]
 - Can "bump/boop" opponents (non-lethal shove): push drones out of gates, shove Warriors/Queens off ceilings, etc. [S15][S11][S26]
@@ -146,6 +146,52 @@ Numbers below are community measurements (Frame Data page, partly confirmed by J
 - Loose berries are kicked when a berry-carrying Worker runs into them; kick speed/angle depends on the Worker's speed; landing on a berry with your back to it kicks it horizontally. [S15][S10]
 - Hitboxes/colliders do not change per animation state (except Worker↔Warrior). [S14]
 - Terminal fall velocity exists (tap window of ~half an inch of screen before landing is cited). [S11]
+
+### 3.1 Measurements from footage (ticket 09)
+
+Measured frame by frame from the clips below, which `data/tuning.cfg` cites by tag. All values are in 1920x1080 px and 50 Hz ticks.
+
+| Tag | Clip | Format | Used for |
+|---|---|---|---|
+| [K] | arantius, *Killer Queen Tech: The Rise and Fall (+Bonus)* [S54] | 720p60, direct feed, old Day layout | gravity, terminal speed, Dive, max rise |
+| [R] | arantius, *Killer Queen Tech: On The Ceiling* [S55] | 720p60 | winged gravity, stick model, hover tap rates |
+| [J] | arantius, *Killer Queen Tech: Sticks (Part 2)* [S56] | 720p60 | stick time, short hops, Speed's rise |
+| [L] | arantius, *Killer Queen Tech: Rise Rate* [S57] | 720p60, composited strips | tap rate needed to climb |
+| [G] | arantius, *Killer Queen Tech: Jumping the Gun* [S58] | 720p30, BumbleBash 2016 stream | Match start sequence |
+| [S] | arantius, *Killer Queen Tech: Speed* [S59] | 720p30 | calibration (the source of [S14]'s 5 px/frame, Bot 0.8x and 3.67 s eat) |
+| [SF] | Killer Queen San Francisco, *[Showcase/Cab 1] League Night 2026-08-24*, 5:00-10:24 only [S60] | 1080p60, game at 80.5% in a stream layout | respawn and hatch delays |
+
+**Method.**
+- The arcade draws raw 50 Hz ticks on a 60 Hz display, with no interpolation. In real-time 60 fps footage every sixth frame repeats the one before, so a sprite's track gives one position per tick. Composited or retimed segments, which show no such repeats, were used only for counts and ratios, never for timing.
+- Sprites were tracked by background subtraction plus a team-colour filter, then fitted by least squares against ticks = frames x 5/6: quadratics for gravity, lines for steady speeds. 720p footage scales by 1.5.
+- Calibration: a Warrior's flight in [R] 5:34 measures 4.97 px/tick horizontally against the known 5. Day's 120 px level spacing reads 80 video px at 720p.
+
+**Results.**
+- Worker gravity **0.81 px/tick²**: symmetric fits about a held jump's apex, [K] 0:16, range 0.73-0.84. Short hops' airtime agrees ([J] 4:00-4:04: hops 45-51 px high take 18-22 ticks).
+- Winged (Queen/Warrior) gravity **0.53 px/tick²**, lighter than a Worker's: fits about the apex of a Warrior's free arc after three Flaps, [R] 5:34, range 0.51-0.64 over five windows. The author of [K] says everyone "falls at the same rate", but he compared terminal speeds, which do match.
+- Terminal fall speed **8.1 px/tick** for everyone: 8.07 and 8.1 (Workers, [K] 0:16), 8.2 and 8.0 (Queens, [K] 1:05 and 1:47).
+- Held Worker jump: the feet rise **141 px**, which clears the next Day level (120 px). The rise isn't a launch at full speed: speed builds over the first ~5 ticks to about 9.5 px/tick, then gravity takes over. The tap hop is **45-51 px**.
+- Max rise while Flapping: **9.0 px/tick**, a dead-steady 6.02 video px/tick over 100 ticks with no sawtooth between taps ([K] 1:44, tap robot). Speed raises it 35% ([J] 1:30; the narrator's earlier 30% was measured from a standing start).
+- Tap rate needed to climb ([L], tap robot): 4/s can't get off the ground; 5/s barely; 6/s and up climb at the same rate. Hovering pressed against a ceiling is stable from 10 taps/s ([R] 1:20-2:30; 9 droops, 8 doesn't hold).
+- Dive: terminal **16.2 px/tick**, twice a fall's ([K] 1:05; its author says "exactly twice"), reached at about **1.2 px/tick²**. The Speed upgrade doesn't change the Dive.
+- Ceiling stick: a vanilla Warrior's best stick lasts **24 frames at 60 fps (20 ticks)**, and a Speed Warrior's **32 (27 ticks)**, as counted by [J]'s author at 3:01. [R] 5:00-7:20 explains how a stick works: the stuck unit stays until the apex of the parabola it would have flown, then falls. A unit whose parabola would have gone more than about one body height past the ceiling ricochets. So stick time grows with the speed at impact.
+- Match start ([G] 0:41-0:48, 30 fps): the "Three paths to victory" card shows, then a hex appears each second (Military, Economic, Snail), then 3, 2, 1 at exactly 30 frames each. The gates open on the frame the 1 goes, **7.0 s** after the card. Workers are already climbing out of the Hive and running during the card.
+- Worker respawn: **2.77 s** from death to the coloured Worker standing at its Hive. Two Gold Workers took exactly 2.767 s each ([SF] 5:28.7, 5:29.5). A white outline grows at the spawn point from about 0.9 s.
+- Queen hatch: **2.4 s** from her death to her stepping out of the cracked Egg (2.45 s and 2.41 s, [SF] 6:06.6 and 6:29.4).
+
+**Not measured (estimates in `tuning.cfg`).**
+- Flap impulse, 4.3 px/tick. The tap data alone suggests 6, but at 6 two Flaps stop a terminal fall, against the triple-tap air brake [S11]. 4.3 is the largest that keeps the triple tap, and climbing then takes 6.2 taps/s.
+- Stick/ricochet threshold (8 px/tick) and ricochet exit speed (8 px/tick). Speed's threshold is 1.35x.
+- Air-brake window (12 ticks).
+- Bump repel speed and no-turn window: too tangled in live play to track.
+- Respawn invulnerability (1.5 s): no blinking showed at 15 fps.
+- Run accel/decel: instant.
+- Springboard jump: 1.2x a jump.
+
+**Where the sim's rules differ from the footage.** Tuning can't close these gaps; each would need a rules change.
+- Flapping climbs at a constant 9 px/tick from 6 taps/s up. The sim adds an impulse per Flap, so its climb rate depends on the tap rate.
+- Stick time depends on the speed at impact (stuck until the parabola's apex). The sim uses a fixed stick_ticks.
+- A held Worker jump speeds up over its first few ticks. The sim starts it at full speed; only the height and gravity are matched.
 
 ---
 
@@ -335,22 +381,29 @@ Also: Black uses the term "Drone" officially; Arcade official text says "Worker"
 - [S51] TV Tropes, Killer Queen — https://tvtropes.org/pmwiki/pmwiki.php/VideoGame/KillerQueen (via search excerpts; page not directly fetchable)
 - [S52] Killer Queen Black press release coverage — https://gamesmea.com/arcade-smash-hit-killer-queen-black-now-on-switch-pc-and-steam
 - [S53] Nintendo Everything, KQB 1.62/1.63 patch notes — https://nintendoeverything.com/killer-queen-black-full-patch-notes-for-version-1-62-betelgeuse-update
+- [S54] arantius, "Killer Queen Tech: The Rise and Fall (+Bonus)" (YouTube, 2017) — https://www.youtube.com/watch?v=K_eLKvTTx1M
+- [S55] arantius, "Killer Queen Tech: On The Ceiling" (YouTube, 2017) — https://www.youtube.com/watch?v=RUXAbhCxr2o
+- [S56] arantius, "Killer Queen Tech: Sticks (Part 2)" (YouTube, 2017) — https://www.youtube.com/watch?v=JorLRLde7ic
+- [S57] arantius, "Killer Queen Tech: Rise Rate" (YouTube, 2018) — https://www.youtube.com/watch?v=L6XFWTyPNts
+- [S58] arantius, "Killer Queen Tech: Jumping the Gun" (YouTube, 2017) — https://www.youtube.com/watch?v=e__Kgz04GAA
+- [S59] arantius, "Killer Queen Tech: Speed" (YouTube, 2017) — https://www.youtube.com/watch?v=AbT68OKrh3k
+- [S60] Killer Queen San Francisco, "[Showcase/Cab 1] League Night 2026-08-24" (YouTube stream VOD) — https://www.youtube.com/watch?v=2E-XXmjzqMc
 - Other consulted: Fandom Opening Theory — https://killerqueenarcade.fandom.com/wiki/Opening_Theory ; Fandom Joust — https://killerqueenarcade.fandom.com/wiki/Joust ; Medium, "An Introduction to Everything Killer Queen Arcade" — https://medium.com/@alanwdang/an-introduction-to-everything-killer-queen-arcade-ad6034be047f ; fan clone README (not authoritative) — https://github.com/lukemcneil/killer-queen ; Fluid Project analysis — https://fluidproject.atlassian.net/wiki/spaces/C2LC/pages/7210475/Killer+Queen+video+game
 
 ---
 
 ## Open questions / uncertain
 
-1. **Respawn delays** for Workers, Warriors (as Workers), and Queens (egg hatch) — no number found anywhere.
+1. ~~**Respawn delays**~~ — resolved (ticket 09, §3.1): a Worker 2.77 s, a Queen's Egg hatch 2.4 s, both measured in [S60]. Respawn invulnerability is still unmeasured (1.5 s estimate).
 2. **Economic target per map** — 12 per all community sources; Wikipedia says it varies by arena. Bonus maps unknown.
 3. **Snail eat duration** — 3.67 s measured [S14] vs 3 s in glossary [S11]; speed rider halves it (both agree).
 4. **Speed buff magnitude** — 35% [S14][S11][S9] vs 33% [S12]. 1.35 is better sourced (cited to DeBonis).
 5. **Neutral gate color** — "white" vs "gray"; verify from screenshots.
 6. **Exact joust/kill geometry** — "higher sword wins", "from behind kills", "facing required" are player descriptions; the precise collider/sword-hitbox test is not published. Does a Queen's dive kill regardless of relative height? Sources imply yes for anything below her.
-7. **Bump physics** — no-turn window duration and repel velocities are undocumented beyond "brief" and "based on prior velocities"; uber window ~0.25 s.
-8. **Stick duration**, stick/ricochet velocity thresholds, hover tap-rate threshold, flap impulse, gravity, jump heights — all unquantified (only tap-rate 7–15 Hz anecdote).
+7. **Bump physics** — still unmeasured after ticket 09 (§3.1): Bumps in live footage were too tangled to track. The no-turn window and repel speed are estimates; uber window ~0.25 s.
+8. **Stick duration**, stick/ricochet velocity thresholds, hover tap-rate threshold, flap impulse, gravity, jump heights — mostly resolved (ticket 09, §3.1): gravity, terminal speed, jump heights, max rise, Dive, best stick time and climbing tap rate are measured. Still estimates: the stick/ricochet threshold, ricochet speed, and the flap impulse (constrained by the triple-tap air brake). Stick time depends on impact speed in the arcade, which the sim doesn't model.
 9. **Snail speed with no rider** is zero; snail speed on Night/Twilight presumed identical per-pixel but not measured.
-10. **Match start sequence** — starting barriers exist (map images) but their duration and any countdown/"GO"/announcer cue are undocumented.
+10. ~~**Match start sequence**~~ — resolved (ticket 09, §3.1): a "Three paths to victory" card, three hexes a second apart, then 3, 2, 1, with the gates opening 7.0 s after the card [S58]. Announcer/"GO" audio still unchecked.
 11. **Victory screen**, per-map music, announcer/voice lines, sound effects beyond the kill "pop" — undocumented.
 12. **Sudden Death** operator setting (3/4/5/10 min) — what the game does when it triggers is undocumented.
 13. **Bonus maps** — two exist; names/rules not found ("Snail Bonus Map" mentioned once in a BumbleBear support snippet; unverified).

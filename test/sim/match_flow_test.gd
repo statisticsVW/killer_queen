@@ -144,7 +144,9 @@ func test_on_day_the_starting_barriers_hold_everyone_on_the_hive_level_until_the
 	assert_int(state.countdown_ticks()).is_equal(0)
 	assert_int(lowest).is_less_equal(216 * PX)
 
-	state = _hold(state, _spread(state, false), 150)
+	# Running back the other way, they cross the gaps the barriers held them
+	# off, which a long countdown may have run them past.
+	state = _hold(state, _spread(state, false, true), 150)
 
 	assert_int(_lowest_feet(state)).is_greater(240 * PX)
 
@@ -173,11 +175,12 @@ func _match(cfg: ConfigFile, queens: Array[int], tuning := {}) -> MatchState:
 	return state
 
 
-## Even Seats hold left, odd Seats right.
-func _spread(state: MatchState, button: bool) -> Dictionary:
+## Even Seats hold left, odd Seats right; the other way round if `back`.
+func _spread(state: MatchState, button: bool, back := false) -> Dictionary:
 	var inputs := {}
 	for c in state.characters:
-		inputs[c.seat] = SeatInput.of(SeatInput.LEFT if c.seat % 2 == 0 else SeatInput.RIGHT, false, button)
+		var left := (c.seat % 2 == 0) != back
+		inputs[c.seat] = SeatInput.of(SeatInput.LEFT if left else SeatInput.RIGHT, false, button)
 	return inputs
 
 

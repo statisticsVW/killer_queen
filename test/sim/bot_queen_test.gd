@@ -96,8 +96,8 @@ func test_she_claims_a_neutral_gate_before_stealing_a_nearer_enemy_one() -> void
 func test_she_keeps_further_from_a_higher_warrior_with_no_eggs_left_or_fewer_warriors() -> void:
 	# A Gold Warrior hovers 170 px up, halfway along the floor to the Gate. Blue
 	# has a Warrior of its own, far off. With Eggs left and Warriors even, she
-	# passes under it to the Gate; with no Eggs, or a second Gold Warrior, she
-	# keeps away from it.
+	# passes under it to the Gate; with no Eggs, or a second Gold Warrior (far
+	# off past the Gate, out of her reach), she keeps away from it.
 	var safe := _risk_match(1, false)
 	var no_eggs := _risk_match(0, false)
 	var outnumbered := _risk_match(1, true)
@@ -176,8 +176,8 @@ func test_she_flies_the_short_way_round_where_the_map_wraps() -> void:
 func _risk_match(eggs: int, outnumbered: bool) -> MatchState:
 	var gold: Array[Vector2i] = [Vector2i(900, 960)]
 	if outnumbered:
-		gold.append(Vector2i(60, 960))
-	var cfg := TestMaps.config(TestMaps.floor_tiles(), [Vector2i(300, 960), Vector2i(1860, 960)], gold)
+		gold.append(Vector2i(1860, 960))
+	var cfg := TestMaps.config(TestMaps.floor_tiles(), [Vector2i(300, 960), Vector2i(60, 960)], gold)
 	cfg.set_value("gates", "warrior", [Vector2i(1500, 960)])
 	var egg_points: Array[Vector2i] = []
 	for i in eggs:
