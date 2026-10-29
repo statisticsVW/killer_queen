@@ -34,6 +34,11 @@ var gates: Array[GateState]
 ## The input each Seat played in the tick that produced this state: a Bot's
 ## own input for a Bot Seat. Treat each as immutable.
 var inputs: Array[SeatInput]
+## What Bots see of their enemies: the characters as they stood at the start
+## of each of the last few ticks, newest first (see Bot.view). These are
+## earlier states' characters, never changed after their tick, so every copy
+## shares them.
+var seen: Array
 ## Bots' navigation data (BotNav for each Worker speed, BotFlight), built as
 ## Bots need it.
 ## Derived from the Map and Tuning, so shared by every copy like them and not
@@ -67,12 +72,14 @@ func copy() -> MatchState:
 	s.inputs = inputs.duplicate()
 	s.map = map
 	s.tuning = tuning
+	s.seen = seen
 	s.navs = navs
 	return s
 
 
 ## A digest of every value in the state, characters and events included, but
-## not the shared Map, Tuning and BotNavs. States that differ anywhere have
+## not the shared Map, Tuning and BotNavs, or what Bots have seen (earlier
+## states' characters, which were in those states' fingerprints). States that differ anywhere have
 ## different fingerprints, so comparing them tests determinism. It reads the
 ## properties themselves, so a new field is covered without changing this.
 func fingerprint() -> String:
@@ -86,6 +93,6 @@ static func _values(value: Variant) -> Variant:
 		return value
 	var result := []
 	for prop in value.get_property_list():
-		if prop.usage & PROPERTY_USAGE_SCRIPT_VARIABLE and not prop.name in ["map", "tuning", "navs"]:
+		if prop.usage & PROPERTY_USAGE_SCRIPT_VARIABLE and not prop.name in ["map", "tuning", "navs", "seen"]:
 			result.append([prop.name, _values(value.get(prop.name))])
 	return result

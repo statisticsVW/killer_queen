@@ -124,6 +124,21 @@ func test_the_same_seed_and_seats_give_the_same_match_tick_for_tick_with_bots() 
 	assert_int(a.rng).is_not_equal(start.rng)
 
 
+func test_copies_of_a_state_mid_match_with_bots_step_identically() -> void:
+	# Bots see their enemies as they stood a few ticks before, which a copy
+	# keeps too.
+	var state := Sim.create_match(_bot_config(13, ALL_SEATS))
+	for tick in 300:
+		state = Sim.step(state, _scripted_input(state))
+	var copy := state.copy()
+
+	for tick in 100:
+		state = Sim.step(state, _scripted_input(state))
+		copy = Sim.step(copy, _scripted_input(copy))
+
+	assert_str(copy.fingerprint()).is_equal(state.fingerprint())
+
+
 func test_a_replay_keeps_only_human_input_and_reproduces_a_match_with_bots() -> void:
 	# The Queens are human; every other Seat is a Bot, whose scripted input is
 	# ignored and not recorded.

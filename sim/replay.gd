@@ -6,7 +6,7 @@ extends RefCounted
 ## reproduced exactly (ADR-0002). Bot Seats' input isn't kept: the sim makes it
 ## again.
 
-const _VERSION := 6
+const _VERSION := 7
 
 var _map_source: String
 var _seat_teams: Array[int]

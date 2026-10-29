@@ -12,9 +12,14 @@ extends RefCounted
 ## - otherwise run Berries: go for the Berry it can reach soonest, then carry
 ##   it to the nearest empty hole of its Hive and jump into it.
 ## It keeps going past every other Gate rather than stop in one by accident.
+## It runs away from an enemy sword that comes close, if it notices it (see
+## BotSword.threat), and sometimes picks a worse target, by its Difficulty's
+## mistake rate.
 
 enum Objective { BERRY, HOLE, GATE, SNAIL }
 
+## How close an enemy sword comes before a Bot Worker runs from it.
+const _FLEE_RANGE := 140000
 ## An idle Bot, with nothing to go for, looks again this often.
 const _IDLE_LOOK_TICKS := 10
 ## A Team with no more than this many holes left to fill runs Berries rather
@@ -34,6 +39,9 @@ static func _input(state: MatchState, c: CharacterState) -> SeatInput:
 		return idle
 	if s != null and c.seat == s.rider:
 		return idle if _snail_ours(state, c.team) else Bot.press(c, SeatInput.NEUTRAL)
+	var threat := BotSword.threat(state, c, _FLEE_RANGE)
+	if threat != null:
+		return SeatInput.of(BotSword.away(c, threat))
 	var nav := _nav(state, c)
 	var b := c.bot
 	var on := nav.ledge_at(c.x, c.y) if c.airborne_ticks == 0 else BotNav.NONE
@@ -118,7 +126,8 @@ static func _objective(state: MatchState, c: CharacterState) -> Objective:
 
 
 ## Chooses, for the objective, the target `route` reaches soonest, each one's
-## time made a little longer at random: an empty hole of its Hive, a free
+## time made a little longer at random, or, by its Difficulty's mistake rate,
+## any one it can reach: an empty hole of its Hive, a free
 ## Warrior Gate of its Team, a Berry in a pile or loose, or the Snail. None if
 ## nothing can be reached.
 static func _choose(state: MatchState, c: CharacterState, nav: BotNav, route: BotNav.Route) -> void:
@@ -141,6 +150,11 @@ static func _choose(state: MatchState, c: CharacterState, nav: BotNav, route: Bo
 			for berry in state.berries:
 				var free := berry.where == BerryState.Where.PILE or berry.where == BerryState.Where.LOOSE
 				points.append(Vector2i(berry.x, berry.y) if free else none)
+	var t := state.tuning
+	var careless := Rng.below(state, 100) < Bot.by_level(c, t.bot_easy_mistake_percent,
+		t.bot_normal_mistake_percent, t.bot_hard_mistake_percent)
+	# Each reachable target, by index, and the Ledge under it.
+	var reachable: Array[Vector2i] = []
 	var best := BotNav.UNREACHABLE
 	for i in points.size():
 		if points[i].y < 0:
@@ -148,12 +162,17 @@ static func _choose(state: MatchState, c: CharacterState, nav: BotNav, route: Bo
 		var ledge := nav.ledge_below(points[i].x, points[i].y)
 		if ledge == BotNav.NONE or route.ticks[ledge] == BotNav.UNREACHABLE:
 			continue
+		reachable.append(Vector2i(i, ledge))
 		var ticks := route.ticks[ledge] + nav.walk_ticks(ledge, route.at[ledge], points[i].x) \
-			+ Rng.below(state, state.tuning.bot_choice_jitter_ticks + 1)
+			+ Rng.below(state, t.bot_choice_jitter_ticks + 1)
 		if ticks < best:
 			best = ticks
 			b.target = i
 			b.target_ledge = ledge
+	if careless and not reachable.is_empty():
+		var pick := reachable[Rng.below(state, reachable.size())]
+		b.target = pick.x
+		b.target_ledge = pick.y
 
 
 static func _target_x(state: MatchState, c: CharacterState) -> int:

@@ -45,7 +45,7 @@ One of the ten player positions in a Match, five per Team, one of which is that 
 _Avoid_: Slot, station, player number
 
 **Bot Difficulty**:
-The per-Team setting (Easy, Normal, Hard) that governs how well that Team's Bots decide and, on Easy only, slows them to the arcade's Bot speed. It never grants a Bot an ability a human lacks.
+The per-Team setting (Easy, Normal, Hard) that governs how well that Team's Bots play: how late they react to their enemies, how often they choose badly and how often they notice a threat, and, on Easy only, slowing them to the arcade's Bot speed. It never grants a Bot an ability a human lacks.
 _Avoid_: AI level, CPU strength
 
 **Countdown**:

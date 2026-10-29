@@ -15,6 +15,10 @@ var target_ledge: int = -1
 ## when the target is on that Ledge).
 var ledge: int = -1
 var move: int = -1
+## Bits by Seat: the enemy swords that came close enough to worry about and
+## that it noticed, or missed, since they did (see BotSword.threat).
+var noticed: int
+var missed: int
 
 
 func copy() -> BotState:
@@ -25,4 +29,6 @@ func copy() -> BotState:
 	b.target_ledge = target_ledge
 	b.ledge = ledge
 	b.move = move
+	b.noticed = noticed
+	b.missed = missed
 	return b

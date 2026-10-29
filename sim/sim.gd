@@ -87,6 +87,7 @@ static func step(state: MatchState, input: TickInput) -> MatchState:
 	next.inputs = input.seats.duplicate()
 	if next.win != MatchState.Win.NONE:
 		return next
+	next.seen = [state.characters] + state.seen.slice(0, Bot.memory_ticks(next.tuning) - 1)
 	# Bots decide from the state as it stood, before anyone moves.
 	for c in next.characters:
 		if c.bot != null:

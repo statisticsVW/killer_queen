@@ -6,19 +6,38 @@ extends RefCounted
 ## whose sword is below can be attacked from above. A Worker or Gate is
 ## guarded when a dangerous enemy is close to it. Distances are the larger of
 ## the horizontal (the short way round) and vertical distances between feet.
+## A Bot sees its enemies late, by its Difficulty's reaction delay (Bot.view).
 
 ## How close a dangerous enemy has to be to something to guard it.
 const GUARD_RANGE := 120000
 
 
-## The nearest dangerous enemy within `range` of `c`; null if none.
+## The nearest dangerous enemy within `range` of `c` that `c` has noticed;
+## null if none. When one first comes that close, `c` notices it its
+## Difficulty's awareness_percent of the time; one it misses it ignores until
+## it is no longer a threat.
 static func threat(state: MatchState, c: CharacterState, range: int) -> CharacterState:
+	var t := state.tuning
+	var b := c.bot
 	var nearest: CharacterState = null
+	# Bits by Seat of the enemies that are threats now.
+	var threats := 0
 	for e in enemies(state, c):
-		if not dangerous(state, c, e):
+		if not dangerous(state, c, e) or distance(c, e) >= range:
 			continue
-		if distance(c, e) < range and (nearest == null or distance(c, e) < distance(c, nearest)):
+		var bit := 1 << e.seat
+		threats |= bit
+		if (b.noticed | b.missed) & bit == 0:
+			var aware := Bot.by_level(c, t.bot_easy_awareness_percent, t.bot_normal_awareness_percent,
+				t.bot_hard_awareness_percent)
+			if Rng.below(state, 100) < aware:
+				b.noticed |= bit
+			else:
+				b.missed |= bit
+		if b.noticed & bit != 0 and (nearest == null or distance(c, e) < distance(c, nearest)):
 			nearest = e
+	b.noticed &= threats
+	b.missed &= threats
 	return nearest
 
 
@@ -40,17 +59,21 @@ static func guarded(state: MatchState, c: CharacterState, x: int, y: int) -> boo
 ## height `y`.
 static func back_off(state: MatchState, c: CharacterState, e: CharacterState, back: int,
 		y: int) -> SeatInput:
-	var away := -signi(Sim._wrapped_dx(c.x, e.x))
-	if away == 0:
-		away = -e.facing
-	return BotFlight.toward(state, c, c.x + away * back, y)
+	return BotFlight.toward(state, c, c.x + away(c, e) * back, y)
+
+
+## The way from `e` to `c` (-1 or 1); if level, the way `e` is facing away
+## from.
+static func away(c: CharacterState, e: CharacterState) -> int:
+	var way := -signi(Sim._wrapped_dx(c.x, e.x))
+	return way if way != 0 else -e.facing
 
 
 ## The enemy Worker riding the Snail, unless it is guarded; null if none.
 static func snail_rider(state: MatchState, c: CharacterState) -> CharacterState:
 	if state.snail == null or state.snail.rider == -1:
 		return null
-	var rider := state.characters[state.snail.rider]
+	var rider: CharacterState = Bot.view(state, c)[state.snail.rider]
 	return rider if rider.team != c.team and not guarded(state, c, rider.x, rider.y) else null
 
 
@@ -80,10 +103,10 @@ static func worker(state: MatchState, c: CharacterState, carrying: bool) -> Char
 	return nearest
 
 
-## Living enemies.
+## Living enemies, as `c` sees them.
 static func enemies(state: MatchState, c: CharacterState) -> Array[CharacterState]:
 	var result: Array[CharacterState] = []
-	for e in state.characters:
+	for e: CharacterState in Bot.view(state, c):
 		if e.alive and e.team != c.team:
 			result.append(e)
 	return result

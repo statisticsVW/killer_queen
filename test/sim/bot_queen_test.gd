@@ -73,15 +73,18 @@ func test_she_climbs_over_or_backs_off_from_a_higher_enemy_warrior_in_her_way() 
 
 
 func test_she_claims_a_neutral_gate_before_stealing_a_nearer_enemy_one() -> void:
-	# Gold's human Queen starts on the Gate at x 1100, claiming it, then walks
-	# off right; the Gate at x 300 is neutral. Blue's Bot Queen starts at 900.
-	var cfg := TestMaps.config(TestMaps.floor_tiles(), [Vector2i(900, 960)], [Vector2i(1100, 960)])
-	cfg.set_value("gates", "warrior", [Vector2i(300, 960), Vector2i(1100, 960)])
+	# Gold's human Queen starts on the Gate at x 1000, claiming it, then flies
+	# up out of the way; the Gate at x 300 is neutral. Blue's Bot Queen starts
+	# at 700, too far from Gold's to go for her.
+	var cfg := TestMaps.config(TestMaps.floor_tiles(), [Vector2i(700, 960)], [Vector2i(1000, 960)])
+	cfg.set_value("gates", "warrior", [Vector2i(300, 960), Vector2i(1000, 960)])
 	var state := Sim.create_match(_config(MapData.from_config(cfg), [BLUE, GOLD], [0, 1], [0], 1))
 	var claims := []
 	for i in 600:
+		# She Flaps as fast as she can until 200 px from the top.
 		var inputs := _neutral(state)
-		inputs.seats[1] = SeatInput.of(SeatInput.RIGHT)
+		var gold := state.characters[1]
+		inputs.seats[1] = SeatInput.of(SeatInput.NEUTRAL, false, gold.y > 200 * PX and not gold.button_held)
 		state = Sim.step(state, inputs)
 		for e in state.events:
 			if e.type == MatchEvent.Type.GATE_CLAIM:
@@ -223,6 +226,9 @@ func _config(map: MapData, teams: Array[int], queens: Array[int], bots: Array[in
 	config.bot_seats = bots
 	config.tuning = Tuning.load_default()
 	config.seed = seed
+	# Hard Bots react quickest and notice every threat; Difficulty has its own
+	# tests.
+	config.bot_difficulties = [Bot.Difficulty.HARD, Bot.Difficulty.HARD]
 	return config
 
 

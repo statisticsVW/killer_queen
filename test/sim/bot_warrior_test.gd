@@ -202,6 +202,9 @@ func _config(map: MapData, teams: Array[int], queens: Array[int], bots: Array[in
 	config.bot_seats = bots
 	config.tuning = Tuning.load_default()
 	config.seed = 1
+	# Hard Bots react quickest and notice every threat; Difficulty has its own
+	# tests.
+	config.bot_difficulties = [Bot.Difficulty.HARD, Bot.Difficulty.HARD]
 	return config
 
 

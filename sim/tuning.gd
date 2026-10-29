@@ -63,6 +63,15 @@ var gate_locked_ticks: int
 var gate_invulnerable_ticks: int
 var bot_easy_speed_ratio: int
 var bot_choice_jitter_ticks: int
+var bot_easy_reaction_ticks: int
+var bot_normal_reaction_ticks: int
+var bot_hard_reaction_ticks: int
+var bot_easy_mistake_percent: int
+var bot_normal_mistake_percent: int
+var bot_hard_mistake_percent: int
+var bot_easy_awareness_percent: int
+var bot_normal_awareness_percent: int
+var bot_hard_awareness_percent: int
 
 
 static func load_default() -> Tuning:
