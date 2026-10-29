@@ -10,11 +10,11 @@
 - [x] Each measured constant is in the tuning table with a note of its source clip and method
 - [x] Values that couldn't be measured are listed along with the estimate chosen
 - [x] The research doc's open-questions section is updated with what was resolved
-- [ ] The user plays the movement sandbox and signs off that it feels like the arcade (the arcade reference wins over Killer Queen Black memory)
+- [x] The user plays the movement sandbox and signs off that it feels like the arcade (the arcade reference wins over Killer Queen Black memory)
 
 ## Comments
 
-Measured; waiting on the user's play test and sign-off (last box).
+Done. The user played it and signed off on the feel (2026-10-29).
 
 - Footage, approved clip by clip:
   - six arantius *Killer Queen Tech* videos;
